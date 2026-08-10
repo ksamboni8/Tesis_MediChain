@@ -3,16 +3,19 @@ import { Login } from './views/Login';
 import { TriageForm } from './views/TriageForm';
 import { AuditList } from './views/AuditList';
 import { AdminConsole } from './views/AdminConsole';
+import { AdmissionOffice } from './views/AdmissionOffice';
+import { BenchmarkConsole } from './views/BenchmarkConsole';
 import { UserRole, HybridRecord } from './types';
-import { Shield, LayoutDashboard, LogOut, PlusCircle, Database, FileClock } from 'lucide-react';
+import { Shield, LayoutDashboard, LogOut, PlusCircle, Database, FileClock, UserPlus, Activity } from 'lucide-react';
 
 const App: React.FC = () => {
   const [userRole, setUserRole] = useState<UserRole>(UserRole.NONE);
   const [walletAddress, setWalletAddress] = useState<string>('');
-  const [currentView, setCurrentView] = useState<'triage' | 'audit' | 'admin'>('triage');
+  const [currentView, setCurrentView] = useState<'triage' | 'audit' | 'admin' | 'admission' | 'benchmark'>('triage');
   
   // State for Correction Mode
   const [recordToCorrect, setRecordToCorrect] = useState<HybridRecord | null>(null);
+  const [isReEvaluation, setIsReEvaluation] = useState<boolean>(false);
 
   // Effect to ensure View matches Role immediately upon login
   useEffect(() => {
@@ -20,9 +23,11 @@ const App: React.FC = () => {
       setCurrentView('admin');
     } else if (userRole === UserRole.AUDITOR) {
       setCurrentView('audit');
+    } else if (userRole === UserRole.ADMISSION) {
+      setCurrentView('admission');
     } else if (userRole === UserRole.DOCTOR) {
       // Keep existing logic: if in correction mode, stay there, else triage
-      if (currentView !== 'triage' && currentView !== 'audit') {
+      if (currentView !== 'triage' && currentView !== 'audit' && currentView !== 'benchmark') {
         setCurrentView('triage');
       }
     }
@@ -37,11 +42,19 @@ const App: React.FC = () => {
     setUserRole(UserRole.NONE);
     setWalletAddress('');
     setRecordToCorrect(null);
+    setIsReEvaluation(false);
     setCurrentView('triage'); // Reset default
   };
 
   const handleStartCorrection = (record: HybridRecord) => {
     setRecordToCorrect(record);
+    setIsReEvaluation(false);
+    setCurrentView('triage');
+  };
+
+  const handleStartReEvaluation = (record: HybridRecord) => {
+    setRecordToCorrect(record);
+    setIsReEvaluation(true);
     setCurrentView('triage');
   };
 
@@ -63,9 +76,11 @@ const App: React.FC = () => {
           </div>
           <div className={`mt-2 text-xs font-semibold px-2 py-1 rounded inline-block 
             ${userRole === UserRole.ADMIN ? 'bg-red-600' : 
-              userRole === UserRole.AUDITOR ? 'bg-purple-600' : 'bg-blue-600'}`}>
+              userRole === UserRole.AUDITOR ? 'bg-purple-600' : 
+              userRole === UserRole.ADMISSION ? 'bg-indigo-600' : 'bg-blue-600'}`}>
             {userRole === UserRole.DOCTOR ? 'MÉDICO AUTORIZADO' : 
              userRole === UserRole.AUDITOR ? 'AUDITOR EXTERNO' : 
+             userRole === UserRole.ADMISSION ? 'PERSONAL ADMISIÓN' :
              userRole === UserRole.ADMIN ? 'ADMINISTRADOR DB' : 'USUARIO'}
           </div>
         </div>
@@ -80,7 +95,7 @@ const App: React.FC = () => {
               className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'triage' ? 'bg-blue-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
             >
               <PlusCircle className="w-5 h-5" />
-              <span>{recordToCorrect ? 'Corregir Triage' : 'Nuevo Triage'}</span>
+              <span>{recordToCorrect ? 'Anexar información' : 'Nuevo Triage'}</span>
             </button>
           )}
 
@@ -94,6 +109,25 @@ const App: React.FC = () => {
               <span>Historial Pacientes</span>
             </button>
           )}
+
+          {userRole === UserRole.ADMISSION && (
+            <button
+              onClick={() => setCurrentView('admission')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'admission' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+            >
+              <UserPlus className="w-5 h-5" />
+              <span>Admisión</span>
+            </button>
+          )}
+
+          {/* Benchmarking & Telemetry View for All Authorized Roles */}
+          <button
+            onClick={() => setCurrentView('benchmark')}
+            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'benchmark' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+          >
+            <Activity className="w-5 h-5 text-indigo-400" />
+            <span>Benchmarking Tesis</span>
+          </button>
 
           {/* Admin Database View: ONLY for Admin */}
           {userRole === UserRole.ADMIN && (
@@ -122,9 +156,11 @@ const App: React.FC = () => {
       <main className="flex-1 overflow-y-auto">
         <header className="bg-white border-b border-slate-200 px-8 py-4 sticky top-0 z-10">
           <h1 className="text-2xl font-bold text-slate-800">
-            {currentView === 'triage' && (recordToCorrect ? 'Corrección de Registro Existente' : 'Ingreso de Emergencia')}
+            {currentView === 'triage' && (recordToCorrect ? 'Anexar Información al Registro' : 'Ingreso de Emergencia')}
             {currentView === 'audit' && 'Historial Clínico Unificado'}
             {currentView === 'admin' && 'Panel de Control - Base de Datos Central'}
+            {currentView === 'admission' && 'Módulo de Admisión y Recepción'}
+            {currentView === 'benchmark' && 'Medición de Desempeño y Telemetría'}
           </h1>
         </header>
 
@@ -133,8 +169,10 @@ const App: React.FC = () => {
             <TriageForm 
               walletAddress={walletAddress} 
               initialData={recordToCorrect || undefined}
+              isReEvaluation={isReEvaluation}
               onSuccess={() => {
                 setRecordToCorrect(null);
+                setIsReEvaluation(false);
                 setCurrentView('audit');
               }}
             />
@@ -143,10 +181,17 @@ const App: React.FC = () => {
             <AuditList 
               userRole={userRole} 
               onCorrectRecord={handleStartCorrection} 
+              onReEvaluateRecord={handleStartReEvaluation}
             />
           )}
           {currentView === 'admin' && (
             <AdminConsole />
+          )}
+          {currentView === 'admission' && (
+            <AdmissionOffice />
+          )}
+          {currentView === 'benchmark' && (
+            <BenchmarkConsole />
           )}
         </div>
       </main>

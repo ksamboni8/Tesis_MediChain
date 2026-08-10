@@ -34,12 +34,37 @@ export const dbService = {
         body: JSON.stringify(payload)
       });
 
-      if (!response.ok) throw new Error('Failed to save to MongoDB');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.details || errData.error || 'Failed to save to MongoDB');
+      }
       
       const savedRecord = await response.json();
       return savedRecord;
     } catch (error) {
       console.error("DB Error:", error);
+      throw error;
+    }
+  },
+
+  // POST: Send data to the backend for automatic relayer signing and Polygon Amoy registration
+  async insertRecordInvisible(patientData: PatientData, doctorWallet: string): Promise<HybridRecord> {
+    try {
+      const response = await fetch(`${API_URL}/records/invisible`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ patientData, doctorWallet })
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.details || errData.error || 'Failed to sign/register invisibly via backend');
+      }
+
+      const savedRecord = await response.json();
+      return savedRecord;
+    } catch (error) {
+      console.error("DB Invisible Signing Error:", error);
       throw error;
     }
   },
@@ -88,5 +113,29 @@ export const dbService = {
       console.error("Hack Error:", error);
       throw error;
     }
+  },
+
+  // ADMISSION METHODS
+  async addPendingPatient(data: { cedula: string, name: string, age: number, gender: 'M' | 'F' | 'O', eps: string }) {
+    const response = await fetch(`${API_URL}/pending-patients`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data)
+    });
+    if (!response.ok) throw new Error('Failed to add pending patient');
+    return await response.json();
+  },
+
+  async getPendingPatients() {
+    const response = await fetch(`${API_URL}/pending-patients`);
+    if (!response.ok) throw new Error('Failed to fetch waiting list');
+    return await response.json();
+  },
+
+  async removePendingPatient(id: string) {
+    const response = await fetch(`${API_URL}/pending-patients/${id}`, {
+      method: 'DELETE'
+    });
+    if (!response.ok) throw new Error('Failed to remove patient from list');
   }
 };

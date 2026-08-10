@@ -3,22 +3,25 @@ import { verifyDataIntegrity, generateHash } from '../services/cryptoService';
 import { dbService } from '../services/databaseService';
 import { web3Service } from '../services/web3Service';
 import { ESIBadge } from '../components/Badge';
-import { CheckCircle, AlertTriangle, FileSearch, Clock, Hash, FileText, ChevronDown, ChevronUp, RefreshCw, Scale, Edit2, Play, GitCommit, ExternalLink, Info, Activity, Thermometer, User, Shield, Lock, EyeOff, ShieldCheck } from 'lucide-react';
+import { CheckCircle, AlertTriangle, FileSearch, Clock, Hash, FileText, ChevronDown, ChevronUp, RefreshCw, Scale, Edit2, Play, GitCommit, ExternalLink, Info, Activity, Thermometer, User, Shield, Lock, EyeOff, ShieldCheck, Search, Calendar, Download } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { HybridRecord, UserRole } from '../types';
 
 interface AuditListProps {
   userRole?: UserRole; // To decide if we show Edit buttons
   onCorrectRecord?: (record: HybridRecord) => void;
+  onReEvaluateRecord?: (record: HybridRecord) => void;
 }
 
-export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord }) => {
+export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord, onReEvaluateRecord }) => {
   const [mongoRecords, setMongoRecords] = useState<HybridRecord[]>([]);
   const [chainRecords, setChainRecords] = useState<any[]>([]);
   const [validationMap, setValidationMap] = useState<Record<string, boolean>>({});
   const [calculatedHashMap, setCalculatedHashMap] = useState<Record<string, string>>({}); // NEW: Store actual calculated hashes
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [dateFilter, setDateFilter] = useState('');
 
   const isDoctor = userRole === UserRole.DOCTOR;
 
@@ -85,6 +88,11 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
     if (onCorrectRecord) onCorrectRecord(record);
   };
 
+  const handleReEvaluation = (e: React.MouseEvent, record: HybridRecord) => {
+    e.stopPropagation();
+    if (onReEvaluateRecord) onReEvaluateRecord(record);
+  };
+
   if (loading) {
      return (
         <div className="flex flex-col items-center justify-center h-96 text-slate-400">
@@ -103,6 +111,63 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
     );
   }
 
+  const filteredRecords = mongoRecords.filter(rec => {
+    const d = rec.patientData;
+    const matchesSearch = searchTerm === '' || 
+      d.cedula.includes(searchTerm) || 
+      rec.blockchainHash.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      (rec.transactionHash && rec.transactionHash.toLowerCase().includes(searchTerm.toLowerCase()));
+      
+    const recordDate = format(d.triageTimestamp, 'yyyy-MM-dd');
+    const matchesDate = dateFilter === '' || recordDate === dateFilter;
+    
+    return matchesSearch && matchesDate;
+  });
+
+  const exportToCSV = () => {
+    const headers = [
+      "ID Registro",
+      "Fecha Triage",
+      "Hora Triage",
+      "Cedula",
+      "Nivel Sugerido",
+      "Nivel Final",
+      "Modificado (Override)",
+      "Estado Integridad",
+      "Hash Blockchain",
+      "TxHash"
+    ];
+
+    const rows = filteredRecords.map(rec => {
+      const d = rec.patientData;
+      const isIntegritySafe = validationMap[rec._id];
+      const hasOverride = d.suggestedEsiLevel !== d.finalEsiLevel;
+      
+      return [
+        rec._id,
+        format(d.triageTimestamp, 'yyyy-MM-dd'),
+        format(d.triageTimestamp, 'HH:mm:ss'),
+        isDoctor ? d.cedula : "*** PROTEGIDO ***",
+        d.suggestedEsiLevel,
+        d.finalEsiLevel,
+        hasOverride ? "SI" : "NO",
+        isIntegritySafe ? "VALIDO" : "CORRUPTO",
+        rec.blockchainHash,
+        rec.transactionHash || "N/A"
+      ].map(val => `"${val}"`).join(",");
+    });
+
+    const csvContent = [headers.join(","), ...rows].join("\n");
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", `reporte_auditoria_${format(Date.now(), 'yyyyMMdd_HHmm')}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -110,14 +175,61 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
         <div className="text-sm text-slate-500 flex items-center gap-2">
            <div className="w-2 h-2 rounded-full bg-green-500"></div>
            <span>Sincronizado</span>
-           <button onClick={loadData} className="ml-4 p-2 bg-slate-100 rounded-full hover:bg-slate-200">
+           <button onClick={loadData} className="ml-4 p-2 bg-slate-100 rounded-full hover:bg-slate-200" title="Actualizar datos">
              <RefreshCw className="w-4 h-4" />
+           </button>
+           <button 
+             onClick={exportToCSV} 
+             className="ml-2 p-2 bg-blue-50 text-blue-600 rounded-full hover:bg-blue-100 flex items-center gap-2 px-4 transition-colors font-medium"
+             title="Exportar a CSV"
+           >
+             <Download className="w-4 h-4" />
+             <span className="hidden sm:inline">Exportar Reporte</span>
            </button>
         </div>
       </div>
 
-      <div className="grid gap-4">
-        {mongoRecords.map((rec) => {
+      {/* Buscador y Filtros */}
+      <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex-1 relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input 
+            type="text" 
+            placeholder="Buscar por Cédula o TxHash..." 
+            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
+        </div>
+        <div className="relative">
+          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+          <input 
+            type="date" 
+            className="pl-9 pr-4 py-2 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 outline-none text-sm text-slate-600"
+            value={dateFilter}
+            onChange={(e) => setDateFilter(e.target.value)}
+          />
+        </div>
+        {(searchTerm || dateFilter) && (
+          <button 
+            onClick={() => { setSearchTerm(''); setDateFilter(''); }}
+            className="px-4 py-2 text-sm text-slate-500 hover:bg-slate-100 rounded-lg transition-colors"
+          >
+            Limpiar
+          </button>
+        )}
+      </div>
+
+      {filteredRecords.length === 0 && (
+        <div className="flex flex-col items-center justify-center h-48 text-slate-400 bg-white rounded-xl border border-slate-200 border-dashed">
+          <Search className="w-16 h-16 mb-4 opacity-30" />
+          <p>No se encontraron registros que coincidan con la búsqueda.</p>
+        </div>
+      )}
+
+      {filteredRecords.length > 0 && (
+        <div className="grid gap-4">
+          {filteredRecords.map((rec) => {
           const isIntegritySafe = validationMap[rec._id];
           const calculatedHash = calculatedHashMap[rec._id];
           const isExpanded = expandedId === rec._id;
@@ -181,9 +293,21 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                            </span>
                         )}
                         {isCorrection && (
-                           <span className="bg-purple-100 text-purple-700 text-[10px] px-2 py-0.5 rounded font-bold border border-purple-200 flex items-center gap-1">
-                              <GitCommit className="w-3 h-3"/> CORRECCIÓN
-                           </span>
+                           (() => {
+                             const isReEval = d.correctionReason?.toLowerCase().includes('re-eval') || 
+                                              d.correctionReason?.toLowerCase().includes('cambio') || 
+                                              d.correctionReason?.toLowerCase().includes('estado') || 
+                                              d.correctionReason?.toLowerCase().includes('deterioro');
+                             return (
+                               <span className={`text-[10px] px-2 py-0.5 rounded font-bold border flex items-center gap-1 ${
+                                 isReEval 
+                                   ? 'bg-blue-100 text-blue-700 border-blue-200' 
+                                   : 'bg-purple-100 text-purple-700 border-purple-200'
+                               }`}>
+                                 <GitCommit className="w-3 h-3"/> {isReEval ? 'RE-EVALUACIÓN' : 'CORRECCIÓN'}
+                               </span>
+                             );
+                           })()
                         )}
                      </div>
                      
@@ -208,17 +332,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                           Atendido en {waitTime} min
                         </div>
                      ) : (
-                        <div className="flex items-center gap-2">
-                            <span className="text-xs text-slate-400">Espera actual: {currentWait} min</span>
-                            {isDoctor && (
-                                <button 
-                                  onClick={(e) => handleMarkAsAttended(e, rec._id)}
-                                  className="bg-blue-600 hover:bg-blue-700 text-white text-[10px] px-2 py-1 rounded flex items-center gap-1 transition-colors"
-                                >
-                                  <Play className="w-3 h-3" fill="currentColor"/> Atender
-                                </button>
-                            )}
-                        </div>
+                        <span className="text-xs text-slate-400">En espera: {currentWait} min</span>
                      )}
                   </div>
 
@@ -228,14 +342,24 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                         {rec.blockchainHash.substring(0, 8)}...
                      </div>
                      
-                     {/* Correction Button - Only Doctors */}
+                     {/* Correction & Re-evaluation Buttons - Only Doctors and only if not yet attended */}
                      {isDoctor && !attendedTime && (
-                       <button
-                         onClick={(e) => handleCorrection(e, rec)}
-                         className="text-xs flex items-center gap-1 text-slate-500 hover:text-blue-600 border border-slate-200 hover:border-blue-300 px-2 py-1 rounded transition-colors"
-                       >
-                         <Edit2 className="w-3 h-3" /> Corregir Triage
-                       </button>
+                       <div className="flex flex-col sm:flex-row gap-1.5 mt-1">
+                         <button
+                           onClick={(e) => handleCorrection(e, rec)}
+                           className="text-[10px] sm:text-xs flex items-center gap-1 text-amber-600 hover:text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium shadow-sm"
+                           title="Anexar una nota aclaratoria para corregir un error en este registro"
+                         >
+                           <Edit2 className="w-3 h-3" /> Corregir Error (Nota)
+                         </button>
+                         <button
+                           onClick={(e) => handleReEvaluation(e, rec)}
+                           className="text-[10px] sm:text-xs flex items-center gap-1 text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 px-2.5 py-1.5 rounded-lg transition-colors font-medium shadow-sm"
+                           title="Realizar un nuevo triage por cambio en el estado clínico del paciente"
+                         >
+                           <RefreshCw className="w-3 h-3" /> Re-evaluar (Estado)
+                         </button>
+                       </div>
                      )}
                      
                      {isExpanded ? <ChevronUp className="text-slate-400 mt-2" /> : <ChevronDown className="text-slate-400 mt-2" />}
@@ -252,10 +376,6 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                      <div className="bg-white p-4 rounded-lg border border-slate-200">
                         <h4 className="font-bold text-slate-700 text-sm mb-3">Trazabilidad Algorítmica</h4>
                         <div className="space-y-2 text-sm">
-                           <div className="flex justify-between">
-                              <span className="text-slate-500">Recursos Contados:</span>
-                              <span className="font-mono font-bold">{rec.patientData.resourcesCount || 0}</span>
-                           </div>
                            <div className="flex justify-between">
                               <span className="text-slate-500">Nivel Sugerido (Sistema):</span>
                               <span className="font-bold">ESI {rec.patientData.suggestedEsiLevel}</span>
@@ -286,7 +406,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                         {isCorrection && (
                             <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
                               <h4 className="font-bold text-purple-800 text-sm mb-2 flex items-center gap-2">
-                                  <GitCommit className="w-4 h-4"/> Motivo de la Corrección
+                                  <GitCommit className="w-4 h-4"/> Información Anexa
                               </h4>
                               {isDoctor ? (
                                 <p className="text-sm text-purple-900 italic">"{rec.patientData.correctionReason}"</p>
@@ -327,24 +447,44 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                                     <div className="grid grid-cols-2 gap-2">
                                         <div className="flex items-center gap-2 text-slate-600">
                                             <Activity className="w-3 h-3 text-red-400"/>
-                                            <span>FC: <strong>{d.vitals.heartRate}</strong> bpm</span>
+                                            <span>FC: <strong>{d.vitals?.heartRate || '-'}</strong> lpm</span>
                                         </div>
                                         <div className="flex items-center gap-2 text-slate-600">
                                             <Activity className="w-3 h-3 text-blue-400"/>
-                                            <span>SpO2: <strong>{d.vitals.spo2}</strong>%</span>
+                                            <span>SpO2: <strong>{d.vitals?.spo2 || '-'}</strong>%</span>
                                         </div>
                                         <div className="flex items-center gap-2 text-slate-600">
                                             <Thermometer className="w-3 h-3 text-orange-400"/>
-                                            <span>Temp: <strong>{d.vitals.temperature}</strong>°C</span>
+                                            <span>Temp: <strong>{d.vitals?.temperature || '-'}</strong>°C</span>
                                         </div>
-                                        <div className="text-slate-600">Dolor (EVA): <strong>{d.vitals.painLevel}/10</strong></div>
+                                        <div className="flex items-center gap-2 text-slate-600">
+                                            <Activity className="w-3 h-3 text-emerald-500"/>
+                                            <span>PA: <strong>{d.vitals?.bloodPressureSys || '-'}/{d.vitals?.bloodPressureDia || '-'}</strong> mmHg</span>
+                                        </div>
+                                        {((d.vitals as any)?.bloodPressureMap || (d.vitals?.bloodPressureSys && d.vitals?.bloodPressureDia)) && (
+                                            <div className="flex items-center gap-2 text-slate-600 col-span-2 bg-blue-50/50 dark:bg-slate-800/10 px-2 py-1 rounded text-xs">
+                                                <span>PAM: <strong>{(d.vitals as any)?.bloodPressureMap || Math.round((d.vitals.bloodPressureSys + 2 * d.vitals.bloodPressureDia) / 3)}</strong> mmHg</span>
+                                            </div>
+                                        )}
+                                        <div className="text-slate-600 col-span-2">Dolor (EVA): <strong>{d.vitals?.painLevel || '0'}/10</strong></div>
+                                    </div>
+                                    </div>
+                                    <div>
+                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Escala de Glasgow</h5>
+                                    <div className="flex items-center gap-2 mb-2">
+                                        <div className={`text-lg font-bold ${d.glasgow?.total <= 8 ? 'text-red-600' : 'text-slate-800'}`}>
+                                            {d.glasgow?.total || 'N/A'} / 15
+                                        </div>
+                                        <span className="text-xs text-slate-500">
+                                            (O: {d.glasgow?.eyeOpening || '-'} | V: {d.glasgow?.verbalResponse || '-'} | M: {d.glasgow?.motorResponse || '-'})
+                                        </span>
                                     </div>
                                     </div>
                                     <div>
                                     <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">Hallazgos Críticos</h5>
                                     <div className="space-y-1">
-                                        {Object.entries(d.checklist).filter(([_, val]) => val).length > 0 ? (
-                                            Object.entries(d.checklist).filter(([_, val]) => val).map(([key, _]) => (
+                                        {Object.entries(d.checklist || {}).filter(([_, val]) => val).length > 0 ? (
+                                            Object.entries(d.checklist || {}).filter(([_, val]) => val).map(([key, _]) => (
                                                 <div key={key} className="flex items-center gap-2 text-xs bg-red-50 text-red-700 px-2 py-1 rounded border border-red-100">
                                                     <AlertTriangle className="w-3 h-3" />
                                                     {key.replace(/([A-Z])/g, ' $1').trim()}
@@ -354,8 +494,11 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
                                     </div>
                                     </div>
                                     <div>
-                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Motivo Consulta</h5>
-                                    <p className="text-slate-600 italic">"{d.symptoms}"</p>
+                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Motivo Consulta (Paciente)</h5>
+                                    <p className="text-slate-600 italic mb-2">"{d.symptoms}"</p>
+                                    
+                                    <h5 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-1">Enfermedad Actual (Médico)</h5>
+                                    <p className="text-slate-800 text-sm">{d.currentIllness || "No registrado"}</p>
                                     </div>
                                 </div>
                             </div>
@@ -450,7 +593,8 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord 
             </div>
           );
         })}
-      </div>
+        </div>
+      )}
     </div>
   );
 };

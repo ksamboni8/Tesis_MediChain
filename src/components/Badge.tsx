@@ -15,11 +15,11 @@ export const ESIBadge: React.FC<{ level: ESILevel }> = ({ level }) => {
 
   const getLabel = (l: ESILevel) => {
     switch (l) {
-      case ESILevel.ONE: return 'NIVEL 1: EMERGENCIA';
-      case ESILevel.TWO: return 'NIVEL 2: URGENCIA';
-      case ESILevel.THREE: return 'NIVEL 3: URGENCIA';
-      case ESILevel.FOUR: return 'NIVEL 4: CONSULTA PRIORITARIA';
-      case ESILevel.FIVE: return 'NIVEL 5: CONSULTA EXTERNA';
+      case ESILevel.ONE: return 'TRIAGE 1 - EMERGENCIA';
+      case ESILevel.TWO: return 'TRIAGE 2 - URGENCIA';
+      case ESILevel.THREE: return 'TRIAGE 3 - URGENCIA';
+      case ESILevel.FOUR: return 'TRIAGE 4 - CONSULTA PRIORITARIA';
+      case ESILevel.FIVE: return 'TRIAGE 5 - CONSULTA EXTERNA';
     }
   };
 

@@ -41,7 +41,10 @@ export class Web3Service {
     this.provider = new ethers.BrowserProvider(window.ethereum);
 
     try {
-      // En Ethers v6, getSigner() se encarga de solicitar acceso si es necesario
+      // Solicitar explícitamente conexión a MetaMask
+      await window.ethereum.request({ method: 'eth_requestAccounts' });
+      
+      // En Ethers v6, getSigner() obtiene la cuenta conectada
       this.signer = await this.provider.getSigner();
       const address = await this.signer.getAddress();
 
@@ -68,28 +71,50 @@ export class Web3Service {
       const lowerAddress = address.toLowerCase();
       console.log(`[MediChain] Verificando permisos para: ${address}`);
 
-      let roleFound = UserRole.NONE;
-      let blockchainVerified = false;
+      // 1. PRIORIDAD DE LAS DIRECCIONES DE TU TESIS / DEMO (WHITELIST LOCAL)
+      // Comprobar las cuentas fijas primero. Esto evita conflictos si la cuenta de médico (0x5ED...) 
+      // fue la que desplegó el Smart Contract (siendo por ende el 'owner' técnico en Blockchain).
+      const FALLBACK_ADMIN = "0xab021c825A80D5fDAA2dd38e144000b6Fc2B1762"; 
+      const FALLBACK_DOCTOR = "0x5ED24436721Ed75651F625fD3031B849b26dCd80"; // Tu cuenta médico de la tesis
+      const FALLBACK_AUDITOR = "0x35512dB79B90Cc5d3103a3C9bB640Ad3b722175F"; // Tu cuenta auditor de la tesis
+      const FALLBACK_ADMISSION = "0xe5c4FE69F92f350226276460D238621c361bACcC"; // Tu cuenta de admisión
 
-      // 1. INTENTO DE VERIFICACIÓN REAL (BLOCKCHAIN)
+      if (lowerAddress === FALLBACK_DOCTOR.toLowerCase()) {
+          console.log(">> ROL DETECTADO: DOCTOR (Whitelist Local)");
+          return { address, role: UserRole.DOCTOR };
+      }
+      if (lowerAddress === FALLBACK_ADMIN.toLowerCase()) {
+          console.log(">> ROL DETECTADO: ADMIN (Whitelist Local)");
+          return { address, role: UserRole.ADMIN };
+      }
+      if (lowerAddress === FALLBACK_AUDITOR.toLowerCase()) {
+          console.log(">> ROL DETECTADO: AUDITOR (Whitelist Local)");
+          return { address, role: UserRole.AUDITOR };
+      }
+      if (lowerAddress === FALLBACK_ADMISSION.toLowerCase()) {
+          console.log(">> ROL DETECTADO: ADMISSION (Whitelist Local)");
+          return { address, role: UserRole.ADMISSION };
+      }
+
+      // 2. INTENTO DE VERIFICACIÓN REAL (BLOCKCHAIN) PARA OTRAS DIRECCIONES DINÁMICAS
       if (this.contract) {
           try {
-             // A. Verificar Owner (Admin)
+             // A. Verificar Doctor primero (en caso de que sea un médico registrado posteriormente)
+             try {
+                 if (await this.contract.isDoctor(address)) {
+                     console.log(">> BLOCKCHAIN CONFIRMED: DOCTOR");
+                     return { address, role: UserRole.DOCTOR };
+                 }
+             } catch (e) { console.warn("Falló check de doctor en Blockchain", e); }
+
+             // B. Verificar Owner (Admin)
              try {
                  const ownerAddress = await this.contract.owner();
                  if (ownerAddress.toLowerCase() === lowerAddress) {
                      console.log(">> BLOCKCHAIN CONFIRMED: ADMIN (Owner)");
                      return { address, role: UserRole.ADMIN };
                  }
-             } catch (e) { console.warn("Falló check de owner", e); }
-
-             // B. Verificar Doctor
-             try {
-                 if (await this.contract.isDoctor(address)) {
-                     console.log(">> BLOCKCHAIN CONFIRMED: DOCTOR");
-                     return { address, role: UserRole.DOCTOR };
-                 }
-             } catch (e) { console.warn("Falló check de doctor", e); }
+             } catch (e) { console.warn("Falló check de owner en Blockchain", e); }
 
              // C. Verificar Auditor
              try {
@@ -97,34 +122,13 @@ export class Web3Service {
                     console.log(">> BLOCKCHAIN CONFIRMED: AUDITOR");
                     return { address, role: UserRole.AUDITOR };
                 }
-             } catch (e) { console.warn("Falló check de auditor", e); }
+             } catch (e) { console.warn("Falló check de auditor en Blockchain", e); }
 
           } catch (err) {
              console.error("Error general consultando contrato Blockchain.", err);
           }
       } else {
          console.warn("⚠️ CONTRATO NO CONFIGURADO: Saltando verificación on-chain.");
-      }
-
-      // 2. MODO DE RESPALDO (FALLBACK) PARA TESIS/DEMO
-      // Si la blockchain falla, verificamos contra las direcciones conocidas de tu contrato.
-      // Esto asegura que puedas entrar a la demo incluso si la red Polygon falla.
-      
-      const FALLBACK_ADMIN = "0x70b25c90a56541278ff353e1c676413296f21929"; 
-      const FALLBACK_DOCTOR = "0x1d75648d720b0bb4e5aa6eaddfe6ceac099a67bc"; // Tu cuenta médico del contrato
-      const FALLBACK_AUDITOR = "0xc027c80e710324ca69fe58aa7cfbdf8f5105597e"; // Tu cuenta auditor del contrato
-
-      if (lowerAddress === FALLBACK_ADMIN.toLowerCase()) {
-          console.warn("⚠️ ACCESO FALLBACK ACTIVADO: Rol ADMIN concedido por Whitelist Local.");
-          return { address, role: UserRole.ADMIN };
-      }
-      if (lowerAddress === FALLBACK_DOCTOR.toLowerCase()) {
-          console.warn("⚠️ ACCESO FALLBACK ACTIVADO: Rol DOCTOR concedido por Whitelist Local.");
-          return { address, role: UserRole.DOCTOR };
-      }
-      if (lowerAddress === FALLBACK_AUDITOR.toLowerCase()) {
-          console.warn("⚠️ ACCESO FALLBACK ACTIVADO: Rol AUDITOR concedido por Whitelist Local.");
-          return { address, role: UserRole.AUDITOR };
       }
 
       // 3. ACCESO DENEGADO
@@ -148,8 +152,14 @@ export class Web3Service {
     try {
       const GAS_PRICE_GWEI = ethers.parseUnits('35', 'gwei');
 
+      // Guarantee patient ID (cédula) is anonymized via Salted SHA-256 / Hash before sending on-chain
+      const PATIENT_SALT = "MEDICHAIN_SECRET_SALT_2026_AMOY_TRIAGE";
+      const anonymizedPatientId = patientId.startsWith('ANON-')
+        ? patientId
+        : `ANON-${ethers.id((patientId || '00000') + PATIENT_SALT).substring(2, 18).toUpperCase()}`;
+
       const tx = await this.contract.registerTriage(
-        patientId, 
+        anonymizedPatientId, 
         dataHash,  
         triageLevel, 
         aiReasoningHash,

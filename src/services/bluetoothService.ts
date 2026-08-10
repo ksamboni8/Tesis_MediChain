@@ -1,13 +1,4 @@
-/**
- * Bluetooth Service
- * Handles connection to ESP32 via Web Bluetooth API.
- * 
- * Note: Standard BLE Heart Rate Service UUID is 0x180D
- * Standard Heart Rate Measurement Characteristic UUID is 0x2A37
- * 
- * For this thesis prototype, we assume the ESP32 advertises a custom service
- * or standard services that bundle HR, SpO2, and Temp.
- */
+
 
 // Define Web Bluetooth interfaces to satisfy TypeScript as they might be missing in standard libs
 interface BluetoothDevice extends EventTarget {

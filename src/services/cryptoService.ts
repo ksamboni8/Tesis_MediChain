@@ -11,25 +11,22 @@ export const generateHash = async (data: PatientData): Promise<string> => {
   // Explicitly constructing nested objects prevents property reordering by DBs
   
   const sortedVitals = {
-    heartRate: data.vitals.heartRate,
-    spo2: data.vitals.spo2,
-    temperature: data.vitals.temperature,
-    respiratoryRate: data.vitals.respiratoryRate,
-    bloodPressureSys: data.vitals.bloodPressureSys,
-    bloodPressureDia: data.vitals.bloodPressureDia,
-    painLevel: data.vitals.painLevel
+    heartRate: data.vitals?.heartRate,
+    spo2: data.vitals?.spo2,
+    temperature: data.vitals?.temperature,
+    respiratoryRate: data.vitals?.respiratoryRate,
+    bloodPressureSys: data.vitals?.bloodPressureSys,
+    bloodPressureDia: data.vitals?.bloodPressureDia,
+    painLevel: data.vitals?.painLevel
   };
 
-  const sortedChecklist = {
-    cardiacArrest: data.checklist.cardiacArrest,
-    airwayCompromise: data.checklist.airwayCompromise,
-    severeRespiratoryDistress: data.checklist.severeRespiratoryDistress,
-    shockSigns: data.checklist.shockSigns,
-    unresponsive: data.checklist.unresponsive,
-    confusedLethargic: data.checklist.confusedLethargic,
-    severePainDistress: data.checklist.severePainDistress,
-    highRiskCondition: data.checklist.highRiskCondition
-  };
+  const sortedChecklist = Object.keys(data.checklist || {}).sort().reduce(
+    (obj: any, key: string) => { 
+      obj[key] = (data.checklist as any)[key]; 
+      return obj;
+    }, 
+    {}
+  );
 
   const payloadToHash = {
     cedula: data.cedula,
@@ -41,7 +38,6 @@ export const generateHash = async (data: PatientData): Promise<string> => {
     
     // Critical ESI Decisions for Traceability
     checklist: sortedChecklist, // Use sorted
-    resourcesCount: data.resourcesCount,
     suggestedEsiLevel: data.suggestedEsiLevel,
     finalEsiLevel: data.finalEsiLevel,
     overrideReason: data.overrideReason || "AUTO", // Ensure defined string

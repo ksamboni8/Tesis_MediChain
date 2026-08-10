@@ -1,56 +1,76 @@
-const mongoose = require('mongoose');
+import mongoose from 'mongoose';
 
-const RecordSchema = new mongoose.Schema({
-  // Metadata for the hybrid system
-  blockchainHash: { type: String, required: true },
-  blockchainSignature: { type: String, required: true },
-  transactionHash: { type: String, required: false }, // Stores the PolygonScan TX link
+// 1. Subesquema de Signos Vitales
+const VitalSignsSchema = new mongoose.Schema({
+  heartRate: { type: Number, required: true },
+  spo2: { type: Number, required: true },
+  temperature: { type: Number, required: true },
+  respiratoryRate: { type: Number, required: true },
+  bloodPressureSys: { type: Number, required: true },
+  bloodPressureDia: { type: Number, required: true },
+  bloodPressureMap: { type: Number }, // Presión Arterial Media
+  painLevel: { type: Number, min: 0, max: 10, required: true }
+}, { _id: false });
+
+// 2. Subesquema de Escala Glasgow
+const GlasgowScaleSchema = new mongoose.Schema({
+  eyeOpening: { type: Number, min: 1, max: 4, required: true },
+  verbalResponse: { type: Number, min: 1, max: 5, required: true },
+  motorResponse: { type: Number, min: 1, max: 6, required: true },
+  total: { type: Number, min: 3, max: 15, required: true }
+}, { _id: false });
+
+// 3. Subesquema de Datos Principales del Paciente y Clasificación de Triage
+const PatientDataSchema = new mongoose.Schema({
+  id: { type: String, required: true },
+  cedula: { type: String, required: true, index: true }, // Indexado para búsquedas ultra-rápidas
+  name: { type: String, required: true },
+  age: { type: Number, required: true },
+  gender: { type: String, enum: ['M', 'F', 'O'], required: true },
+  eps: { type: String, default: '' },
   
-  // The Patient Data Structure
-  patientData: {
-    id: String,
-    cedula: String,
-    name: String,
-    age: Number,
-    gender: String,
-    symptoms: String,
-    vitals: {
-      heartRate: Number,
-      spo2: Number,
-      temperature: Number,
-      respiratoryRate: Number,
-      bloodPressureSys: Number,
-      bloodPressureDia: Number,
-      painLevel: Number
-    },
-    // ESI Algorithm Data
-    checklist: {
-      cardiacArrest: Boolean,
-      airwayCompromise: Boolean,
-      severeRespiratoryDistress: Boolean,
-      shockSigns: Boolean,
-      unresponsive: Boolean,
-      confusedLethargic: Boolean,
-      severePainDistress: Boolean,
-      highRiskCondition: Boolean
-    },
-    selectedResources: [String],
-    resourcesCount: Number,
-    
-    suggestedEsiLevel: Number,
-    finalEsiLevel: Number,
-    overrideReason: String,
-    
-    triageTimestamp: Number,
-    estimatedAttentionTime: Number,
-    attentionTimestamp: Number, // When doctor actually saw patient
+  // Relatos de Consulta y Narrativa Clínica
+  symptoms: { type: String, required: true }, // Motivo de Consulta (Relato del Paciente)
+  currentIllness: { type: String, default: '' }, // Enfermedad Actual (Relato Médico)
+  
+  // Signos vitales y escalas neurológicas
+  vitals: { type: VitalSignsSchema, required: true },
+  glasgow: { type: GlasgowScaleSchema, required: true },
+  
+  // Checklist de criterios ESI (Soporte flexible para el algoritmo)
+  checklist: { type: mongoose.Schema.Types.Mixed },
+  selectedSymptoms: [{ type: String }], // Historial de tags/síntomas si aplican
+  
+  // Niveles de Clasificación Triage ESI
+  suggestedEsiLevel: { type: Number, required: true },
+  finalEsiLevel: { type: Number, required: true },
+  overrideReason: { type: String },
+  
+  // Tiempos de atención y métricas de rendimiento
+  triageTimestamp: { type: Number, required: true },
+  estimatedAttentionTime: { type: Number, required: true },
+  attentionTimestamp: { type: Number }, // Cuándo fue realmente atendido (Métrica de interoperabilidad)
+  
+  // Trazabilidad de Auditoría y Correcciones Claras (Inmutabilidad)
+  parentRecordHash: { type: String }, // Referencia encadenada al hash anterior
+  correctionReason: { type: String },
+  doctorId: { type: String, required: true }
+}, { _id: false });
 
-    // Correction Logic
-    parentRecordHash: String, // Link to previous version
-    correctionReason: String,
-
-    doctorId: String
-  }
+// 4. Esquema Principal de Registro Híbrido (MongoDB + Blockchain)
+const RecordSchema = new mongoose.Schema({
+  blockchainHash: { type: String, required: true, unique: true }, // Identificador criptográfico
+  blockchainSignature: { type: String, required: true },
+  transactionHash: { type: String, required: false }, // Enlace a la red (Polygon)
+  
+  // Datos clínicos estructurados
+  patientData: { type: PatientDataSchema, required: true }
 }, { timestamps: true });
 
-module.exports = mongoose.model('HybridRecord', RecordSchema);
+// Índices Compuestos y Simples para Consultas de Alto Rendimiento
+RecordSchema.index({ 'patientData.cedula': 1 });
+RecordSchema.index({ 'patientData.triageTimestamp': -1 });
+RecordSchema.index({ 'patientData.finalEsiLevel': 1 });
+RecordSchema.index({ createdAt: -1 });
+
+export default mongoose.model('HybridRecord', RecordSchema);

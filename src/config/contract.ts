@@ -1,6 +1,6 @@
 // Dirección del contrato desplegado en Remix. 
-// ¡REEMPLAZA ESTO CON TU DIRECCIÓN DESPUÉS DEL DEPLOY EN REMIX!
-export const CONTRACT_ADDRESS = "0x4d259f886f96abaa2d267cedd68ad6107cd9e2f2"; 
+
+export const CONTRACT_ADDRESS = "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A"; 
 
 export const CONTRACT_ABI = [
 	{

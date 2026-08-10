@@ -4,27 +4,33 @@
   "description": "Sistema de Triage Híbrido con Blockchain e IoT",
   "main": "index.tsx",
   "scripts": {
-    "dev": "vite",
+    "dev": "tsx server.ts",
     "build": "tsc && vite build",
     "lint": "tsc --noEmit",
     "preview": "vite preview",
-    "server": "node server/index.js"
+    "start": "node server.ts"
   },
   "dependencies": {
-    "ethers": "^6.13.2",
-    "react": "^18.3.1",
-    "react-dom": "^18.3.1",
-    "lucide-react": "^0.344.0",
+    "@google/genai": "^2.8.0",
+    "cors": "^2.8.5",
     "date-fns": "^3.3.1",
+    "dotenv": "^17.4.2",
+    "ethers": "^6.13.2",
     "express": "^4.18.2",
+    "lucide-react": "^0.344.0",
+    "mongodb-memory-server": "^11.0.1",
     "mongoose": "^7.6.0",
-    "cors": "^2.8.5"
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "devDependencies": {
-    "vite": "^5.1.4",
-    "@vitejs/plugin-react": "^4.2.1",
-    "typescript": "^5.2.2",
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
     "@types/react": "^18.2.66",
-    "@types/react-dom": "^18.2.22"
+    "@types/react-dom": "^18.2.22",
+    "@vitejs/plugin-react": "^4.2.1",
+    "tsx": "^4.21.0",
+    "typescript": "^5.2.2",
+    "vite": "^5.1.4"
   }
 }

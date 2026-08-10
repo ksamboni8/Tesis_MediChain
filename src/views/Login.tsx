@@ -80,7 +80,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
              <Lock className="w-6 h-6 text-blue-400 mt-1" />
              <div>
                <h3 className="font-bold text-slate-200">Smart Contracts</h3>
-               <p className="text-sm text-slate-400">Lógica de triage ESI v4 inmutable desplegada en Polygon Amoy.</p>
+               <p className="text-sm text-slate-400">Lógica de triage normativo inmutable desplegada en Polygon Amoy.</p>
              </div>
           </div>
           <div className="flex items-start gap-4 p-4 bg-slate-800/50 rounded-xl border border-slate-700 backdrop-blur-sm">
@@ -103,7 +103,7 @@ export const Login: React.FC<LoginProps> = ({ onLogin }) => {
           <div className="text-center lg:text-left mb-10">
             <h2 className="text-3xl font-bold text-slate-900 mb-2">Bienvenido</h2>
             <p className="text-slate-500">
-              Conecte su billetera Web3 para autenticar su rol (Médico, Auditor o Administrador).
+              Conecte su billetera Web3 para autenticar su rol (Médico, Admisión, Auditor o Administrador).
             </p>
           </div>
 

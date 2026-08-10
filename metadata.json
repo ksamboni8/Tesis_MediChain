@@ -3,5 +3,8 @@
   "description": "A secure, blockchain-backed emergency triage system with IoT integration for vital signs.",
   "requestFramePermissions": [
     "bluetooth"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }
