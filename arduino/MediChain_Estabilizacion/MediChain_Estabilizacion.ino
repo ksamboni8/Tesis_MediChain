@@ -77,6 +77,12 @@
 #define RECHAZOS_REINICIO 3     // Rechazos seguidos que reinician la ventana de intervalos
 #define MIN_INTERVALOS_RECHAZO 2 // Intervalos guardados a partir de los cuales se aplica el rechazo
 #define N_RAZONES        5      // SpO2 con la mediana de R de los últimos 5 latidos
+// Límites de la SpO2 reportada: solo el intervalo físicamente posible. Antes el mínimo era 80 %, lo que
+// ocultaba las hipoxemias graves (se reportaba 80 aunque el valor calculado fuera menor). La fórmula
+// empírica 110 - 25R no está calibrada por debajo de ~80 %: esos valores indican hipoxemia, pero su
+// exactitud no está validada.
+#define SPO2_MIN         50.0f
+#define SPO2_MAX         100.0f
 
 // Criterios de estabilidad
 #define INTERVALO_EVAL_MS   250
@@ -630,7 +636,7 @@ private:
         (acIR / dcIR);
 
     diagRazon = razon;
-    diagSpO2Inst = constrain(110.0f - 25.0f * razon, 80.0f, 99.9f);
+    diagSpO2Inst = constrain(110.0f - 25.0f * razon, SPO2_MIN, SPO2_MAX);
 
     razones[indiceRazon] = razon;
     indiceRazon = (indiceRazon + 1) % N_RAZONES;
@@ -663,8 +669,8 @@ private:
     spo2 =
         constrain(
             110.0f - 25.0f * razonMediana,
-            80.0f,
-            99.9f
+            SPO2_MIN,
+            SPO2_MAX
         );
 
     spo2Inicializada = true;
