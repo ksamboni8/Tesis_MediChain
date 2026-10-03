@@ -562,7 +562,7 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
     const signature = await signHashBackend(dataHash);
     const t_firma_ms = Number((performance.now() - t_firma_start).toFixed(3));
 
-    // C. Register on Blockchain (attempts actual write on Polygon Amoy or returns simulated tx hash)
+    // C. Ancla en Polygon Amoy. Fail-closed: si la transacción no se confirma, se lanza el error y no se guarda nada.
     // We embed the doctor's MetaMask address visibly in plain text within the reason/metadata string
     // Format: "DOC:0x123...|ACTION:..." so Polygonscan directly displays the physician's wallet!
     const doctorAddressClean = (doctorWallet || patientData.doctorId || "0xANONYMOUS_DOCTOR").trim();

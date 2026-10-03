@@ -198,7 +198,7 @@ export interface HybridRecord {
   _id: string; // MongoDB ID
   patientData: PatientData; // The actual medical content
   blockchainHash: string; // The immutable hash stored on-chain (Data Fingerprint)
-  blockchainSignature: string; // The doctor's signature
+  blockchainSignature: string; // Firma ECDSA del hash con la clave del Relayer (no del médico); no se verifica
   transactionHash?: string; // NEW: The Polygon TX Receipt Hash
   isSynced: boolean; // Helper for frontend state
   createdAt: string;
