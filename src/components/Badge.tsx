@@ -15,11 +15,12 @@ export const ESIBadge: React.FC<{ level: ESILevel }> = ({ level }) => {
 
   const getLabel = (l: ESILevel) => {
     switch (l) {
-      case ESILevel.ONE: return 'TRIAGE 1 - EMERGENCIA';
-      case ESILevel.TWO: return 'TRIAGE 2 - URGENCIA';
-      case ESILevel.THREE: return 'TRIAGE 3 - URGENCIA';
-      case ESILevel.FOUR: return 'TRIAGE 4 - CONSULTA PRIORITARIA';
-      case ESILevel.FIVE: return 'TRIAGE 5 - CONSULTA EXTERNA';
+      // Mismos nombres que el panel de triage (getTriageLabel en TriageForm.tsx)
+      case ESILevel.ONE: return 'TRIAGE I - REANIMACIÓN';
+      case ESILevel.TWO: return 'TRIAGE II - EMERGENCIA';
+      case ESILevel.THREE: return 'TRIAGE III - URGENCIA';
+      case ESILevel.FOUR: return 'TRIAGE IV - CONSULTA PRIORITARIA';
+      case ESILevel.FIVE: return 'TRIAGE V - CONSULTA EXTERNA';
     }
   };
 
