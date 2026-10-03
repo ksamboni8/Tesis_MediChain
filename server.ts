@@ -534,6 +534,19 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
     patientData.aiLevel = aiLevel === null ? null : Number(aiLevel);
     patientData.aiModelUsed = aiModelUsed;
 
+    // Nivel final (obligatorio, lo asigna el médico) y nivel sugerido (el de la IA, o null si no se
+    // ejecutó el análisis). También se validan antes de anclar, por la misma razón que aiLevel.
+    const isEsiLevel = (v: unknown) => Number.isInteger(Number(v)) && Number(v) >= 1 && Number(v) <= 5;
+    if (patientData.finalEsiLevel == null || !isEsiLevel(patientData.finalEsiLevel)) {
+      return res.status(400).json({ error: "patientData.finalEsiLevel must be an integer between 1 and 5" });
+    }
+    const suggested = patientData.suggestedEsiLevel ?? null;
+    if (suggested !== null && !isEsiLevel(suggested)) {
+      return res.status(400).json({ error: "patientData.suggestedEsiLevel must be null or an integer between 1 and 5" });
+    }
+    patientData.finalEsiLevel = Number(patientData.finalEsiLevel);
+    patientData.suggestedEsiLevel = suggested === null ? null : Number(suggested);
+
     // Verificar en la Blockchain que la wallet del médico esté autorizada ANTES de hashear/firmar/registrar nada.
     const doctorId = patientData.doctorId;
     if (!doctorId) {
@@ -568,9 +581,13 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
     const doctorAddressClean = (doctorWallet || patientData.doctorId || "0xANONYMOUS_DOCTOR").trim();
     // RNF-05: solo etiquetas fijas en la cadena, nunca texto clínico libre. El motivo de la corrección
     // queda en MongoDB y forma parte del dataHash (correctionReason en hashPayload.ts).
+    // NO_AI: sin sugerencia de IA; AI_MATCH: el médico aceptó el nivel de la IA; MD_OVERRIDE: lo cambió.
+    // Los registros anteriores a quitar el motor de reglas usan ALGO_MATCH en lugar de AI_MATCH.
     const actionTag = patientData.correctionReason
       ? "CORR"
-      : (patientData.suggestedEsiLevel === patientData.finalEsiLevel ? "ALGO_MATCH" : "MD_OVERRIDE");
+      : patientData.suggestedEsiLevel === null
+        ? "NO_AI"
+        : (patientData.suggestedEsiLevel === patientData.finalEsiLevel ? "AI_MATCH" : "MD_OVERRIDE");
     
     const plainTextMetadataOnChain = `DOC:${doctorAddressClean}|${actionTag}`;
       

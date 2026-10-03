@@ -169,14 +169,14 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
     const rows = filteredRecords.map(rec => {
       const d = rec.patientData;
       const integrity = validationMap[rec._id] ?? 'NO_VERIFICADO';
-      const hasOverride = d.suggestedEsiLevel !== d.finalEsiLevel;
-      
+      const hasOverride = d.suggestedEsiLevel != null && d.suggestedEsiLevel !== d.finalEsiLevel;
+
       return [
         rec._id,
         format(d.triageTimestamp, 'yyyy-MM-dd'),
         format(d.triageTimestamp, 'HH:mm:ss'),
         isDoctor ? d.cedula : "*** PROTEGIDO ***",
-        d.suggestedEsiLevel,
+        d.suggestedEsiLevel ?? "N/A",
         d.aiLevel ?? "N/A", // N/A: la IA no se ejecutó en este triage
         d.finalEsiLevel,
         hasOverride ? "SI" : "NO",
@@ -274,7 +274,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
           const isTampered = integrity === 'ALTERADO';
           const calculatedHash = calculatedHashMap[rec._id];
           const isExpanded = expandedId === rec._id;
-          const hasOverride = rec.patientData.suggestedEsiLevel !== rec.patientData.finalEsiLevel;
+          const hasOverride = rec.patientData.suggestedEsiLevel != null && rec.patientData.suggestedEsiLevel !== rec.patientData.finalEsiLevel;
           const isCorrection = !!rec.patientData.parentRecordHash;
           const d = rec.patientData; // Shortcut
           
@@ -421,11 +421,11 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
                   {/* Traceability Section (Levels & Reasons) */}
                   <div className="mb-6 grid grid-cols-1 md:grid-cols-2 gap-4">
                      <div className="bg-white p-4 rounded-lg border border-slate-200">
-                        <h4 className="font-bold text-slate-700 text-sm mb-3">Trazabilidad Algorítmica</h4>
+                        <h4 className="font-bold text-slate-700 text-sm mb-3">Trazabilidad de la Clasificación</h4>
                         <div className="space-y-2 text-sm">
                            <div className="flex justify-between">
-                              <span className="text-slate-500">Nivel Sugerido (Sistema):</span>
-                              <span className="font-bold">ESI {rec.patientData.suggestedEsiLevel}</span>
+                              <span className="text-slate-500">Nivel Sugerido:</span>
+                              <span className="font-bold">{rec.patientData.suggestedEsiLevel != null ? `ESI ${rec.patientData.suggestedEsiLevel}` : 'Sin sugerencia de IA'}</span>
                            </div>
                            <div className="flex justify-between">
                               <span className="text-slate-500">Nivel Final (Médico):</span>

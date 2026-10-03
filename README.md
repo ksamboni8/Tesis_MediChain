@@ -15,7 +15,7 @@ MediChain apoya el registro del triage en urgencias en tres frentes:
 | Problema | Componente |
 | --- | --- |
 | Transcripción manual de signos vitales | Dispositivo ESP32 que envía FC, SpO2 y temperatura por Bluetooth Low Energy |
-| Variabilidad en la clasificación | Sugerencia de nivel (reglas clínicas + Gemini) que el profesional acepta o modifica |
+| Variabilidad en la clasificación | Sugerencia de nivel generada por Gemini que el profesional acepta o modifica (con justificación) |
 | Registros modificables sin rastro | Hash SHA-256 de cada registro anclado en un contrato inteligente en Polygon Amoy |
 
 La auditoría recalcula el hash de cada registro guardado en MongoDB y comprueba que esté anclado en

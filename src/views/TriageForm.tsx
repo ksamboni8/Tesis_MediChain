@@ -68,161 +68,6 @@ const GLASGOW_OPTIONS = {
 
 
 // ─────────────────────────────────────────────────────────────────
-// UMBRALES DE SIGNOS VITALES
-// Basado en ESI v4 + Res. 5596 de 2015 + protocolo Clínica Colombia
-// ─────────────────────────────────────────────────────────────────
-const VITAL_THRESHOLDS = {
-  fc:   { t1_low: 40,   t1_high: 150, t2_low: 50,   t2_high: 140 },
-  spo2: { t1: 90,       t2: 94 },
-  fr:   { t1_high: 30,  t2_high: 24,  t2_low: 10 },
-  pas:  { t1: 70,       t2_low: 90,   t2_high: 180 },
-  temp: { t1_high: 40.5, t1_low: 35.0, t2_high: 39.5, t2_low: 35.5 },
-} as const;
-
-// ─────────────────────────────────────────────────────────────────
-// TIPOS PARA EL RESULTADO DEL ALGORITMO
-// ─────────────────────────────────────────────────────────────────
-export interface TriageReason {
-  factor: 'glasgow' | 'vitals' | 'symptom' | 'shock' | 'modifier';
-  description: string;
-  suggestedLevel: ESILevel;
-}
-
-export interface TriageResult {
-  level: ESILevel;
-  reasons: TriageReason[];
-  modifiersApplied: string[];
-}
-
-// ─────────────────────────────────────────────────────────────────
-// ALGORITMO PRINCIPAL — calcularTriage
-// Regla: el factor más grave predomina (cascada descendente)
-// EVA: dato informativo, NO define nivel automáticamente
-// ─────────────────────────────────────────────────────────────────
-const calcularTriage = (
-  gcsTotal: number,
-  fr: number,
-  fc: number,
-  pas: number,
-  sato2: number,
-  temperatura: number,
-  symptoms: string[],  // incluye 'Shock Hipovolémico', etc.
-  modifiers: {
-    gestante: boolean;
-    adultoMayor: boolean;
-    lactante: boolean;
-    inmunosuprimido: boolean;
-    oncologico: boolean;
-  }
-): TriageResult => {
-
-  const reasons: TriageReason[] = [];
-  const modifiersApplied: string[] = [];
-  let worstLevel: ESILevel = ESILevel.FIVE;
-
-  const evaluate = (
-    condition: boolean,
-    factor: TriageReason['factor'],
-    description: string,
-    level: ESILevel
-  ) => {
-    if (condition) {
-      reasons.push({ factor, description, suggestedLevel: level });
-      if (level < worstLevel) worstLevel = level;
-    }
-  };
-
-  // ── 1. GLASGOW ───────────────────────────────────────────────
-  if (gcsTotal > 0) {
-    evaluate(gcsTotal <= 8,  'glasgow', `GCS ${gcsTotal} ≤ 8 → coma / trauma grave`, ESILevel.ONE);
-    evaluate(gcsTotal >= 9 && gcsTotal <= 13, 'glasgow', `GCS ${gcsTotal} entre 9–13 → compromiso neurológico moderado`, ESILevel.TWO);
-  }
-
-  // ── 2. FRECUENCIA CARDÍACA ───────────────────────────────────
-  if (fc > 0) {
-    evaluate(fc < VITAL_THRESHOLDS.fc.t1_low || fc > VITAL_THRESHOLDS.fc.t1_high,
-      'vitals', `FC ${fc} lpm ${fc < 40 ? '< 40' : '> 150'} → inestabilidad hemodinámica crítica`, ESILevel.ONE);
-    evaluate(fc >= VITAL_THRESHOLDS.fc.t1_low && fc < VITAL_THRESHOLDS.fc.t2_low,
-      'vitals', `FC ${fc} lpm entre 40–50 → bradicardia significativa`, ESILevel.TWO);
-    evaluate(fc > VITAL_THRESHOLDS.fc.t2_high && fc <= VITAL_THRESHOLDS.fc.t1_high,
-      'vitals', `FC ${fc} lpm entre 140–150 → taquicardia moderada`, ESILevel.TWO);
-  }
-
-  // ── 3. SpO₂ ─────────────────────────────────────────────────
-  if (sato2 > 0) {
-    evaluate(sato2 < VITAL_THRESHOLDS.spo2.t1,
-      'vitals', `SpO₂ ${sato2}% < 90 → hipoxia crítica`, ESILevel.ONE);
-    evaluate(sato2 >= VITAL_THRESHOLDS.spo2.t1 && sato2 < VITAL_THRESHOLDS.spo2.t2,
-      'vitals', `SpO₂ ${sato2}% entre 90–94 → hipoxia moderada`, ESILevel.TWO);
-  }
-
-  // ── 4. FRECUENCIA RESPIRATORIA ───────────────────────────────
-  if (fr > 0) {
-    evaluate(fr > VITAL_THRESHOLDS.fr.t1_high,
-      'vitals', `FR ${fr} rpm > 30 → insuficiencia respiratoria grave`, ESILevel.ONE);
-    evaluate(fr > VITAL_THRESHOLDS.fr.t2_high && fr <= VITAL_THRESHOLDS.fr.t1_high,
-      'vitals', `FR ${fr} rpm entre 24–30 → taquipnea moderada`, ESILevel.TWO);
-    evaluate(fr > 0 && fr < VITAL_THRESHOLDS.fr.t2_low,
-      'vitals', `FR ${fr} rpm < 10 → bradipnea`, ESILevel.TWO);
-  }
-
-  // ── 5. PRESIÓN ARTERIAL SISTÓLICA ────────────────────────────
-  if (pas > 0) {
-    evaluate(pas < VITAL_THRESHOLDS.pas.t1,
-      'vitals', `TA sistólica ${pas} mmHg < 70 → colapso circulatorio / shock`, ESILevel.ONE);
-    evaluate(pas >= VITAL_THRESHOLDS.pas.t1 && pas < VITAL_THRESHOLDS.pas.t2_low,
-      'vitals', `TA sistólica ${pas} mmHg entre 70–90 → hipotensión moderada`, ESILevel.TWO);
-    evaluate(pas > VITAL_THRESHOLDS.pas.t2_high,
-      'vitals', `TA sistólica ${pas} mmHg > 180 → HTA severa`, ESILevel.TWO);
-  }
-
-  // ── 6. TEMPERATURA ───────────────────────────────────────────
-  if (temperatura > 0) {
-    evaluate(temperatura > VITAL_THRESHOLDS.temp.t1_high,
-      'vitals', `Temperatura ${temperatura}°C > 40.5 → hipertermia grave`, ESILevel.ONE);
-    evaluate(temperatura < VITAL_THRESHOLDS.temp.t1_low,
-      'vitals', `Temperatura ${temperatura}°C < 35 → hipotermia`, ESILevel.ONE);
-    evaluate(temperatura >= VITAL_THRESHOLDS.temp.t1_low && temperatura < VITAL_THRESHOLDS.temp.t2_low,
-      'vitals', `Temperatura ${temperatura}°C entre 35–35.5 → hipotermia leve`, ESILevel.TWO);
-    evaluate(temperatura > VITAL_THRESHOLDS.temp.t2_high && temperatura <= VITAL_THRESHOLDS.temp.t1_high,
-      'vitals', `Temperatura ${temperatura}°C entre 39.5–40.5 → fiebre alta`, ESILevel.TWO);
-  }
-
-  // ── 7. SHOCK ─────────────────────────────────────────────────
-  // Cualquier tipo de shock confirmado → T1 directo
-  const shockSymptom = symptoms.find(s => s.toLowerCase().startsWith('shock'));
-  evaluate(!!shockSymptom, 'shock',
-    `Shock confirmado: ${shockSymptom && shockSymptom !== 'Shock (Sin tipificar)'
-      ? shockSymptom.replace('Shock ', '')
-      : 'sin tipificar'}`,
-    ESILevel.ONE);
-
-  // ── 8. FACTORES MODIFICADORES ────────────────────────────────
-  // Suben el nivel calculado en 1 si aplica.
-  // Solo actúan si el nivel base es T3, T4 o T5 (no empeoran ya un T1/T2).
-  // Nunca deben modificar Triage I o II.
-  const applyModifier = (condition: boolean, description: string) => {
-    if (condition && worstLevel > ESILevel.TWO) {
-      modifiersApplied.push(description);
-      worstLevel = (worstLevel - 1) as ESILevel;
-      reasons.push({
-        factor: 'modifier',
-        description: `Modificador aplicado: ${description} → nivel subido un grado`,
-        suggestedLevel: worstLevel,
-      });
-    }
-  };
-
-  applyModifier(modifiers.gestante, 'Gestante');
-  applyModifier(modifiers.adultoMayor, 'Adulto mayor > 65 años');
-  applyModifier(modifiers.lactante, 'Lactante < 1 año');
-  applyModifier(modifiers.inmunosuprimido, 'Inmunosuprimido');
-  applyModifier(modifiers.oncologico, 'Paciente oncológico');
-
-  return { level: worstLevel, reasons, modifiersApplied };
-};
-
-// ─────────────────────────────────────────────────────────────────
 // HELPERS DE UI — sin cambios respecto al original
 // ─────────────────────────────────────────────────────────────────
 const getTriageColor = (level: ESILevel) => {
@@ -354,9 +199,8 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
   // Identifica el análisis vigente: al cambiar de paciente se incrementa y una respuesta en curso se descarta
   const aiRequestIdRef = useRef(0);
 
-  // Descarta el análisis de IA y lo derivado de él. suggestedLevel, triageResult y finalLevel se
-  // recalculan con el algoritmo en los efectos de abajo al quedar aiTriageResponse en null y
-  // overrideReason vacío. Los síntomas y modificadores que puso la IA se limpian donde se llama.
+  // Descarta el análisis de IA y lo derivado de él: sin análisis no hay nivel sugerido, y el nivel
+  // final vuelve a quedar sin asignar. Los síntomas y modificadores que puso la IA se limpian donde se llama.
   const resetAiState = () => {
     aiRequestIdRef.current++;
     setAiTriageResponse(null);
@@ -364,6 +208,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     setAiErrorMsg('');
     setIsAiAnalyzing(false);
     setOverrideReason('');
+    setFinalLevel(null);
   };
 
   const handleAnalyzeSymptomsWithAI = async () => {
@@ -426,24 +271,11 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         setSelectedSymptoms(data.extractedSymptoms);
       }
 
-      // Aplicar directamente el nivel de triage determinado por la IA de forma soberana
+      // El nivel de la IA es el nivel sugerido (se deriva de aiTriageResponse) y se propone como nivel
+      // final; el médico puede cambiarlo justificando el cambio
       if (data.aiLevel) {
-        setSuggestedLevel(data.aiLevel);
         setFinalLevel(data.aiLevel);
-        setTriageResult({
-          level: data.aiLevel,
-          reasons: [
-            {
-              factor: 'symptom',
-              description: data.explanation || 'Clasificación asignada por IA Clínica según datos integrales del paciente',
-              suggestedLevel: data.aiLevel
-            }
-          ],
-          modifiersApplied: []
-        });
-        if (data.explanation) {
-          setOverrideReason(`Clasificado por IA: ${data.explanation}`);
-        }
+        setOverrideReason('');
       }
 
     } catch (err: any) {
@@ -459,9 +291,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
   const handleApplyAiTriage = () => {
     if (aiTriageResponse) {
       setFinalLevel(aiTriageResponse.aiLevel);
-      if (aiTriageResponse.aiLevel !== suggestedLevel) {
-        setOverrideReason(`Clasificado por IA: ${aiTriageResponse.explanation}`);
-      }
+      setOverrideReason('');
     }
   };
   const [selectedModifiers, setSelectedModifiers] = useState({
@@ -500,9 +330,12 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
 
   const [hasShock, setHasShock]                   = useState(false);
   const [shockType, setShockType]                 = useState('');
-  const [triageResult, setTriageResult]           = useState<TriageResult>({ level: ESILevel.FIVE, reasons: [], modifiersApplied: [] });
-  const [suggestedLevel, setSuggestedLevel]       = useState<ESILevel>(ESILevel.FIVE);
-  const [finalLevel, setFinalLevel]               = useState<ESILevel>(ESILevel.FIVE);
+  // Nivel sugerido: solo el de la IA. Sin análisis (no se pidió o falló) no hay sugerencia y el médico
+  // asigna el nivel final directamente.
+  const suggestedLevel: ESILevel | null = aiTriageResponse?.aiLevel ?? null;
+  const [finalLevel, setFinalLevel]               = useState<ESILevel | null>(null);
+  // Para guardar, además de los campos obligatorios, el médico debe haber asignado el nivel final
+  const missingToSave = finalLevel === null ? [...missingRequired, 'Nivel final de triage'] : missingRequired;
   const [overrideReason, setOverrideReason]       = useState('');
   const [correctionReason, setCorrectionReason]   = useState('');
   const [pendingPatients, setPendingPatients]     = useState<PendingPatient[]>([]);
@@ -589,7 +422,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     setHasShock(false);
     setShockType('');
     setCorrectionReason('');
-    // finalLevel lo vuelve a igualar al nivel sugerido el efecto que depende de selectedPendingId
+    // finalLevel y overrideReason ya los limpió resetAiState: el nivel del paciente anterior no pasa a este
 
     // Sesión BLE: se cierra para que ni las lecturas en curso ni el t_iot del paciente anterior
     // se asignen a este. disconnect() anula los callbacks, así que no salta el aviso de desconexión.
@@ -639,7 +472,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     if (initialData) {
       const d = initialData.patientData;
       // Una corrección o re-evaluación empieza sin análisis de IA propio (aiLevel null si no se
-      // vuelve a analizar). En corrección, overrideReason se recarga del registro más abajo.
+      // vuelve a analizar). En corrección, el nivel final se recarga del registro más abajo.
       resetAiState();
       setPatientInfo({
         cedula: d.cedula,
@@ -698,7 +531,8 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
             oncologico: d.selectedSymptoms.includes('Modifier: Paciente oncológico')
           });
         }
-        if (d.overrideReason) setOverrideReason(d.overrideReason);
+        // Corrección: parte del nivel final registrado (resetAiState lo dejó sin asignar)
+        setFinalLevel(d.finalEsiLevel);
       }
     }
   }, [initialData, isReEvaluation]);
@@ -711,40 +545,6 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         : null
     }));
   }, [glasgow.eyeOpening, glasgow.verbalResponse, glasgow.motorResponse]);
-
-  // ── Recalcular triage al cambiar cualquier variable clínica ──
-  useEffect(() => {
-    // Si la IA ya determinó el nivel clínico, se mantiene la clasificación de la IA
-    if (aiTriageResponse?.aiLevel) {
-      setSuggestedLevel(aiTriageResponse.aiLevel);
-      return;
-    }
-
-    const allSymptoms = [...selectedSymptoms];
-    if (hasShock) allSymptoms.push(shockType ? `Shock ${shockType}` : 'Shock (Sin tipificar)');
-
-    const result = calcularTriage(
-      // Glasgow incompleto → 15 (no aporta criterio), como antes con el valor por defecto. No se usa
-      // null: "null <= 8" es verdadero y daría Triage I. No se puede guardar sin Glasgow completo,
-      // así que el nivel sugerido que se guarda siempre usa el Glasgow real.
-      glasgow.total ?? 15,
-      Number(vitals.respiratoryRate) || 0,
-      Number(vitals.heartRate) || 0,
-      Number(vitals.bloodPressureSys) || 0,
-      Number(vitals.spo2) || 0,
-      Number(vitals.temperature) || 0,
-      allSymptoms,
-      selectedModifiers
-    );
-    setTriageResult(result);
-    setSuggestedLevel(result.level);
-  }, [glasgow.total, vitals, selectedSymptoms, hasShock, shockType, patientInfo.age, patientInfo.gender, selectedModifiers, aiTriageResponse]);
-
-  useEffect(() => {
-    if (!overrideReason && !isCorrectionMode) setFinalLevel(suggestedLevel);
-    // selectedPendingId: al cambiar de paciente, un nivel final elegido a mano para el anterior se
-    // descarta aunque el nivel sugerido del nuevo paciente coincida con el del anterior
-  }, [suggestedLevel, isCorrectionMode, overrideReason, selectedPendingId]);
 
   // Al desmontar el formulario (guardar, cambiar de vista) se cierra la conexión GATT si sigue
   // abierta. disconnect() anula los callbacks antes de cerrar: no hay aviso ni setState tras desmontar.
@@ -915,9 +715,9 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
 
   const handleSubmit = async () => {
     // El botón ya está deshabilitado y la lista de faltantes visible; defensa adicional
-    if (missingRequired.length > 0) return;
-    if (suggestedLevel !== finalLevel && !overrideReason.trim()) {
-      alert("⚠️ REQUERIDO: Debe justificar por qué cambió el nivel sugerido por el sistema.");
+    if (missingToSave.length > 0 || finalLevel === null) return;
+    if (suggestedLevel !== null && suggestedLevel !== finalLevel && !overrideReason.trim()) {
+      alert("⚠️ REQUERIDO: Debe justificar por qué cambió el nivel sugerido por la IA.");
       return;
     }
     if (isCorrectionMode && !correctionReason.trim()) {
@@ -975,7 +775,10 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       finalEsiLevel: finalLevel,
       aiLevel: aiTriageResponse?.aiLevel ?? null,
       aiModelUsed: aiTriageResponse?._metrics?.modelUsed ?? null,
-      overrideReason: overrideReason || "Concordancia con Algoritmo",
+      // Justificación del médico solo si cambió el nivel de la IA; si no, una etiqueta fija
+      overrideReason: suggestedLevel === null
+        ? "Sin sugerencia de IA"
+        : suggestedLevel === finalLevel ? "Concordancia con la sugerencia de la IA" : overrideReason.trim(),
       triageTimestamp: Date.now(),
       estimatedAttentionTime: addMinutes(new Date(), getAttentionTime(finalLevel)).getTime(),
       doctorId: walletAddress,
@@ -1543,12 +1346,6 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
                       <span className={`px-3 py-1.5 rounded-lg text-xs font-black font-mono shadow-sm ${getTriageColor(aiTriageResponse.aiLevel)}`}>
                         {getTriageLabel(aiTriageResponse.aiLevel)}
                       </span>
-                      {aiTriageResponse.aiLevel !== triageResult.level && (
-                        <span className="text-[10px] font-mono text-amber-500 font-bold bg-amber-500/10 px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
-                          <AlertTriangle className="w-3 h-3" />
-                          Difieren
-                        </span>
-                      )}
                     </div>
                     <p className={`text-[11px] leading-relaxed italic ${isDarkMode ? 'text-slate-300' : 'text-slate-700 font-medium'}`}>
                       "{aiTriageResponse.explanation}"
@@ -1598,35 +1395,17 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         <section className={`${t.card} rounded-xl p-5 border shadow-sm`}>
           <h2 className={`${t.heading} text-sm font-bold mb-4 uppercase tracking-wider opacity-80`}>6. Nivel Sugerido y Decisión Médica</h2>
 
-          {/* Badge nivel sugerido */}
-          <div className={`mb-4 p-4 rounded-xl border flex flex-col items-center justify-center transition-all duration-500 ${getTriageColor(suggestedLevel)}`}>
-            <span className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">Nivel Sugerido por el Sistema</span>
-            <span className="text-2xl font-black tracking-tight text-center">{getTriageLabel(suggestedLevel)}</span>
-            <span className="text-xs mt-1 opacity-90 font-medium">Tiempo máx: {formatAttentionTime(getAttentionTime(suggestedLevel))}</span>
-          </div>
-
-          {/* Razones del nivel — transparencia clínica */}
-          {triageResult.reasons.length > 0 && (
-            <div className={`mb-4 p-3 rounded-lg border ${t.border} ${t.iconBg}`}>
-              <p className={`text-[10px] font-bold ${t.muted} uppercase tracking-wider mb-2`}>Factores determinantes</p>
-              <ul className="space-y-1">
-                {triageResult.reasons
-                  .filter(r => r.suggestedLevel === suggestedLevel)
-                  .slice(0, 4)
-                  .map((r, i) => (
-                    <li key={i} className={`text-[11px] ${t.text} flex items-start gap-1.5`}>
-                      <span className="opacity-50 mt-0.5">→</span> {r.description}
-                    </li>
-                  ))}
-              </ul>
-              {triageResult.modifiersApplied.length > 0 && (
-                <div className="mt-2 pt-2 border-t border-amber-500/20">
-                  <p className="text-[10px] text-amber-500 font-bold uppercase tracking-wider mb-1">Modificadores aplicados</p>
-                  {triageResult.modifiersApplied.map((m, i) => (
-                    <p key={i} className="text-[11px] text-amber-400">⚠ {m}</p>
-                  ))}
-                </div>
-              )}
+          {/* Badge nivel sugerido: solo existe si se ejecutó el análisis de IA */}
+          {suggestedLevel !== null ? (
+            <div className={`mb-4 p-4 rounded-xl border flex flex-col items-center justify-center transition-all duration-500 ${getTriageColor(suggestedLevel)}`}>
+              <span className="text-[10px] font-bold uppercase tracking-widest opacity-80 mb-1">Nivel Sugerido por la IA</span>
+              <span className="text-2xl font-black tracking-tight text-center">{getTriageLabel(suggestedLevel)}</span>
+              <span className="text-xs mt-1 opacity-90 font-medium">Tiempo máx: {formatAttentionTime(getAttentionTime(suggestedLevel))}</span>
+            </div>
+          ) : (
+            <div className={`mb-4 p-4 rounded-xl border flex flex-col items-center justify-center ${t.border} ${t.iconBg}`}>
+              <span className={`text-[10px] font-bold uppercase tracking-widest ${t.muted} mb-1`}>Sin sugerencia de IA</span>
+              <span className={`text-xs ${t.text} text-center`}>Inicie el análisis IA o asigne directamente el nivel final.</span>
             </div>
           )}
 
@@ -1641,7 +1420,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
                   }`}>T{lvl}</button>
               ))}
             </div>
-            {suggestedLevel !== finalLevel && (
+            {suggestedLevel !== null && finalLevel !== null && suggestedLevel !== finalLevel && (
               <div className="mt-3">
                 <label className="text-[10px] font-bold text-amber-500 mb-1 block uppercase tracking-wider">⚠️ Justificación de Cambio Requerida</label>
                 <textarea className={`w-full ${t.iconBg} border border-amber-500/50 rounded-lg px-3 py-2 ${t.heading} text-xs focus:ring-1 focus:ring-amber-500`}
@@ -1669,19 +1448,19 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
 
           {/* Tras un ERROR el botón vuelve a habilitarse para reintentar; el formulario conserva los datos */}
           {/* Campos obligatorios pendientes: el botón queda deshabilitado y se listan aquí (misma regla que el servidor) */}
-          {missingRequired.length > 0 && (status === 'IDLE' || status === 'ERROR') && (
+          {missingToSave.length > 0 && (status === 'IDLE' || status === 'ERROR') && (
             <div className="mb-3 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-xs">
               <p className="font-bold flex items-center gap-1.5">
                 <AlertTriangle className="w-4 h-4 shrink-0" /> Campos obligatorios pendientes para guardar:
               </p>
               <ul className="mt-1.5 ml-6 list-disc space-y-0.5">
-                {missingRequired.map(label => <li key={label}>{label}</li>)}
+                {missingToSave.map(label => <li key={label}>{label}</li>)}
               </ul>
             </div>
           )}
-          <button onClick={handleSubmit} disabled={(status !== 'IDLE' && status !== 'ERROR') || missingRequired.length > 0}
+          <button onClick={handleSubmit} disabled={(status !== 'IDLE' && status !== 'ERROR') || missingToSave.length > 0}
             className={`w-full py-3.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-              (status !== 'IDLE' && status !== 'ERROR') || missingRequired.length > 0
+              (status !== 'IDLE' && status !== 'ERROR') || missingToSave.length > 0
                 ? `${isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-200 text-slate-400'} cursor-not-allowed`
                 : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md'
             }`}>

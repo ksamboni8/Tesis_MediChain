@@ -42,7 +42,8 @@ const PatientDataSchema = new mongoose.Schema({
   selectedSymptoms: [{ type: String }], // Historial de tags/síntomas si aplican
   
   // Niveles de Clasificación Triage ESI
-  suggestedEsiLevel: { type: Number, required: true },
+  // Nivel sugerido por la IA; null si no se ejecutó el análisis (registros anteriores: nivel del algoritmo de reglas)
+  suggestedEsiLevel: { type: Number, default: null },
   finalEsiLevel: { type: Number, required: true },
   overrideReason: { type: String },
 

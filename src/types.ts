@@ -176,7 +176,7 @@ export interface PatientData {
   checklist: ESIChecklist;
   selectedSymptoms?: string[]; // NEW: For the modern UI
   
-  suggestedEsiLevel: ESILevel; // Nivel mostrado al médico como sugerencia (el de la IA si se ejecutó, si no el del algoritmo)
+  suggestedEsiLevel: ESILevel | null; // Nivel sugerido por la IA; null si no se ejecutó el análisis (registros anteriores: nivel del algoritmo de reglas)
   finalEsiLevel: ESILevel; // Selected by Doctor
   aiLevel: ESILevel | null; // Nivel devuelto por la IA en este triage; null si no se ejecutó
   aiModelUsed: string | null; // Modelo Gemini que respondió (_metrics.modelUsed); null si no aplica. Fuera del hash

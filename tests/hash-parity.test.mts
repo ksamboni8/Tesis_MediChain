@@ -66,6 +66,15 @@ check('Hash frontend = hash backend', frontHash === backHash);
 check('Hash backend = hash frontend tras el esquema Mongoose', backHash === frontAfterDbHash);
 check('Hash alterado (finalEsiLevel 2→3) es diferente', tamperedHash !== backHash);
 
+// 4. Registro sin sugerencia de IA (suggestedEsiLevel null): también debe pasar por el esquema
+// y conservar el hash después de guardarse
+const noAiData = { ...patientData, suggestedEsiLevel: null };
+const noAiBack = generateHashBackend(noAiData);
+const noAiDoc = new Record({ patientData: noAiData, blockchainHash: noAiBack, blockchainSignature: '0xsig' });
+check('Registro sin sugerencia de IA cumple el esquema Record', !noAiDoc.validateSync());
+const noAiFromDb = JSON.parse(JSON.stringify(noAiDoc.toObject().patientData));
+check('Sin sugerencia de IA: hash backend = hash frontend tras el esquema', noAiBack === await generateHash(noAiFromDb));
+
 if (failed) {
   console.log('\nFAIL');
   process.exit(1);
