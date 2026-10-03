@@ -181,8 +181,13 @@ async function registerTriageBackendDetails(patientId: string, dataHash: string,
   const rpcUrl = process.env.POLYGON_RPC_URL;
   const contractAddress = "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A";
   
-  // Anonymize the patient ID (cédula) via Salted SHA-256 hash so raw PII never reaches Polygon blockchain
-  const PATIENT_SALT = process.env.PATIENT_SALT || "MEDICHAIN_SECRET_SALT_2026_AMOY_TRIAGE";
+  // Seudonimiza la cédula con SHA-256 + sal para que no llegue en claro a Polygon. Sin sal por defecto:
+  // una sal escrita en el código es pública y permitiría recuperar las cédulas por fuerza bruta, así que
+  // si PATIENT_SALT falta se rechaza el anclaje (fail-closed, igual que el Relayer).
+  const PATIENT_SALT = process.env.PATIENT_SALT?.trim();
+  if (!PATIENT_SALT) {
+    throw new Error('PATIENT_SALT no está definida en el .env; no se ancla el registro para no exponer la cédula con una sal conocida.');
+  }
   const anonymizedPatientId = patientId.startsWith('ANON-')
     ? patientId
     : `ANON-${crypto.createHash('sha256').update((patientId || '00000') + PATIENT_SALT).digest('hex').substring(0, 16).toUpperCase()}`;
@@ -482,12 +487,15 @@ const ensureLocalMongo = (req: Request, res: Response, next: any) => {
   next();
 };
 
-// RNF-07: Middleware — rechaza rutas de simulación/manipulación directa de BD en producción.
-// Se ejecuta ANTES que ensureLocalMongo para que el bloqueo por entorno sea la primera
-// barrera, independiente del estado de conexión de la base de datos.
+// RNF-07: Middleware — la simulación de ataques (manipulación directa de la BD) solo funciona si se
+// habilita de forma explícita con ENABLE_ATTACK_SIMULATION=true y fuera de producción. Fail-closed:
+// si la variable falta o tiene otro valor, la ruta queda deshabilitada aunque NODE_ENV no esté definida.
+// Se ejecuta ANTES que ensureLocalMongo para que el bloqueo por entorno sea la primera barrera,
+// independiente del estado de conexión de la base de datos.
 const blockInProduction = (req: Request, res: Response, next: any) => {
-  if (process.env.NODE_ENV === 'production') {
-    return res.status(403).json({ error: 'Forbidden: attack simulation is disabled in production environments' });
+  const simulationEnabled = process.env.ENABLE_ATTACK_SIMULATION === 'true' && process.env.NODE_ENV !== 'production';
+  if (!simulationEnabled) {
+    return res.status(403).json({ error: 'Forbidden: attack simulation is disabled (set ENABLE_ATTACK_SIMULATION=true outside production to enable it)' });
   }
   next();
 };
@@ -558,8 +566,10 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
     // We embed the doctor's MetaMask address visibly in plain text within the reason/metadata string
     // Format: "DOC:0x123...|ACTION:..." so Polygonscan directly displays the physician's wallet!
     const doctorAddressClean = (doctorWallet || patientData.doctorId || "0xANONYMOUS_DOCTOR").trim();
+    // RNF-05: solo etiquetas fijas en la cadena, nunca texto clínico libre. El motivo de la corrección
+    // queda en MongoDB y forma parte del dataHash (correctionReason en hashPayload.ts).
     const actionTag = patientData.correctionReason
-      ? `CORR:${patientData.correctionReason.substring(0, 15)}`
+      ? "CORR"
       : (patientData.suggestedEsiLevel === patientData.finalEsiLevel ? "ALGO_MATCH" : "MD_OVERRIDE");
     
     const plainTextMetadataOnChain = `DOC:${doctorAddressClean}|${actionTag}`;

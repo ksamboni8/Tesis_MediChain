@@ -10,7 +10,8 @@
 //     También verifica que los registros no tocados sigan VALIDO (falsos positivos).
 //  5. Guarda en tests/results/ el JSON completo (incluye los patientData originales) y un CSV.
 //
-// Requisitos: servidor corriendo (npm run dev), MongoDB local, POLYGON_RPC_URL en .env y NODE_ENV
+// Requisitos: servidor corriendo (npm run dev), MongoDB local, POLYGON_RPC_URL y
+// ENABLE_ATTACK_SIMULATION=true en .env, y NODE_ENV
 // distinto de production. attentionTimestamp y aiModelUsed no forman parte del hash y no se alteran aquí.
 //
 // Uso (desde la raíz del proyecto):

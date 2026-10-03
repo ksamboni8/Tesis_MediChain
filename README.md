@@ -86,8 +86,9 @@ cp .env.example .env   # y completar los valores
 | `GEMINI_API_KEY` | Sugerencia de triage con IA |
 | `RELAYER_PRIVATE_KEY` | Billetera que firma y paga el anclaje en Polygon Amoy |
 | `POLYGON_RPC_URL` | Nodo RPC de Polygon Amoy (chainId 80002) |
-| `PATIENT_SALT` | Sal para seudonimizar la cédula antes de enviarla a la cadena |
+| `PATIENT_SALT` | Sal para seudonimizar la cédula antes de enviarla a la cadena. Obligatoria: sin ella el servidor no ancla registros |
 | `MONGODB_URI` | Opcional; MongoDB local por defecto |
+| `ENABLE_ATTACK_SIMULATION` | Solo pruebas: `true` habilita `PATCH /api/hack/:id` fuera de producción. Por defecto deshabilitada |
 
 La billetera del Relayer y las de los médicos deben estar autorizadas en el contrato
 (`addDoctor`, desde la cuenta propietaria).
@@ -100,8 +101,9 @@ npm run build      # compila frontend y servidor en dist/
 NODE_ENV=production npm start
 ```
 
-En producción **debe** definirse `NODE_ENV=production`: es lo que deshabilita la ruta de simulación
-de ataques (`PATCH /api/hack/:id`).
+La ruta de simulación de ataques (`PATCH /api/hack/:id`) solo responde si `ENABLE_ATTACK_SIMULATION=true`
+y `NODE_ENV` no es `production`; en cualquier otro caso devuelve 403. En el frontend, la consola de
+simulación solo aparece en modo desarrollo.
 
 Firmware: abrir `arduino/MediChain_Estabilizacion/MediChain_Estabilizacion.ino` en el IDE de
 Arduino (núcleo ESP32 de Espressif) y cargarlo. El dispositivo se anuncia como `MediChain_IoT`.
@@ -112,7 +114,8 @@ Arduino (núcleo ESP32 de Espressif) y cargarlo. El dispositivo se anuncia como 
 # Paridad del hash cliente/servidor (no requiere MongoDB ni red)
 npx tsx tests/hash-parity.test.mts
 
-# Detección de alteraciones (requiere servidor en desarrollo, MongoDB y POLYGON_RPC_URL)
+# Detección de alteraciones (requiere servidor en desarrollo, MongoDB, POLYGON_RPC_URL
+# y ENABLE_ATTACK_SIMULATION=true)
 npx tsx tests/integrity-attack.test.mts                 # muestra el plan, no modifica nada
 npx tsx tests/integrity-attack.test.mts --yes --n=12    # ejecuta la prueba
 npx tsx tests/integrity-attack.test.mts --restore=tests/results/<archivo>.json --yes
