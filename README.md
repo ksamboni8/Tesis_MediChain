@@ -51,7 +51,8 @@ el contrato. Si no lo está, el registro se marca como **ALTERADO**.
 - **Reglas compartidas** (`src/shared/`): campos y serialización del hash (`hashPayload.ts`) y
   campos obligatorios (`requiredFields.ts`), usados por cliente y servidor.
 - **Firmware** (`arduino/`): captura y estabilización de signos vitales en el ESP32.
-- **Contrato**: `MediChainTriage` (Solidity 0.8.20) en Polygon Amoy,
+- **Contrato** (`contracts/MediChainTriage.sol`): Solidity 0.8.20, desarrollado en Remix IDE y
+  desplegado en Polygon Amoy en
   [`0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A`](https://amoy.polygonscan.com/address/0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A).
 
 Los diagramas C4 (contexto y contenedores) y el detalle de diseño están en los capítulos 5 y 6 de
@@ -133,6 +134,7 @@ src/views/                Triage, Admisión, Auditoría, Admin, Benchmark, Login
 src/services/             bluetooth, crypto, database, telemetry, web3
 src/shared/               Reglas compartidas cliente/servidor (hash, campos obligatorios)
 src/config/contract.ts    Dirección y ABI del contrato
+contracts/                Código fuente del contrato inteligente
 arduino/                  Firmware del ESP32
 tests/                    Pruebas de paridad de hash e integridad, y sus resultados
 ```
