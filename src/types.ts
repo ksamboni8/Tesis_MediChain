@@ -180,6 +180,7 @@ export interface PatientData {
   finalEsiLevel: ESILevel; // Selected by Doctor
   aiLevel: ESILevel | null; // Nivel devuelto por la IA en este triage; null si no se ejecutó
   aiModelUsed: string | null; // Modelo Gemini que respondió (_metrics.modelUsed); null si no aplica. Fuera del hash
+  aiExplanation?: string; // Justificación de la IA (RF-21); ausente si no hubo análisis. Entra en el hash si existe
   overrideReason?: string; // Required if Suggested != Final
   
   triageTimestamp: number;

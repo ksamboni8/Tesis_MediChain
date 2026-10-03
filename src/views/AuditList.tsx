@@ -483,6 +483,20 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
                      </div>
 
                      <div className="space-y-2">
+                        {rec.patientData.aiExplanation && (
+                            <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                              <h4 className="font-bold text-blue-800 text-sm mb-2 flex items-center gap-2">
+                                  <Info className="w-4 h-4"/> Justificación de la IA (nivel {rec.patientData.aiLevel ?? 'N/A'})
+                              </h4>
+                              {isDoctor ? (
+                                <p className="text-sm text-blue-900 italic">"{rec.patientData.aiExplanation}"</p>
+                              ) : (
+                                <p className="text-xs text-blue-900/60 italic flex items-center gap-1">
+                                   <Lock className="w-3 h-3"/> Contenido registrado (Texto oculto por privacidad)
+                                </p>
+                              )}
+                            </div>
+                        )}
                         {hasOverride && (
                             <div className="bg-amber-50 p-4 rounded-lg border border-amber-200">
                               <h4 className="font-bold text-amber-800 text-sm mb-2 flex items-center gap-2">

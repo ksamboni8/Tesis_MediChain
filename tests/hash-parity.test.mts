@@ -75,6 +75,17 @@ check('Registro sin sugerencia de IA cumple el esquema Record', !noAiDoc.validat
 const noAiFromDb = JSON.parse(JSON.stringify(noAiDoc.toObject().patientData));
 check('Sin sugerencia de IA: hash backend = hash frontend tras el esquema', noAiBack === await generateHash(noAiFromDb));
 
+// 5. Explicación de la IA (aiExplanation, RF-21): entra en el hash solo si existe, sobrevive al esquema
+// y un registro sin ella conserva el hash que tenía antes de agregar el campo
+const explData = { ...patientData, aiExplanation: 'Dolor torácico opresivo con taquicardia: nivel 2.' };
+const explBack = generateHashBackend(explData);
+const explDoc = new Record({ patientData: explData, blockchainHash: explBack, blockchainSignature: '0xsig' });
+check('Registro con explicación de IA cumple el esquema Record', !explDoc.validateSync());
+const explFromDb = JSON.parse(JSON.stringify(explDoc.toObject().patientData));
+check('Con explicación de IA: hash backend = hash frontend tras el esquema', explBack === await generateHash(explFromDb));
+check('La explicación de IA cambia el hash (queda protegida)', explBack !== backHash);
+check('Sin explicación, el contenido hasheado no incluye la clave aiExplanation', !serialized.includes('aiExplanation'));
+
 if (failed) {
   console.log('\nFAIL');
   process.exit(1);

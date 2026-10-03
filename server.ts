@@ -533,6 +533,11 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
     }
     patientData.aiLevel = aiLevel === null ? null : Number(aiLevel);
     patientData.aiModelUsed = aiModelUsed;
+    // aiExplanation (RF-21): texto, o ausente. Vacío o null se elimina para que el hash no lo incluya.
+    if (patientData.aiExplanation != null && typeof patientData.aiExplanation !== 'string') {
+      return res.status(400).json({ error: "patientData.aiExplanation must be a string when present" });
+    }
+    if (!patientData.aiExplanation) delete patientData.aiExplanation;
 
     // Nivel final (obligatorio, lo asigna el médico) y nivel sugerido (el de la IA, o null si no se
     // ejecutó el análisis). También se validan antes de anclar, por la misma razón que aiLevel.

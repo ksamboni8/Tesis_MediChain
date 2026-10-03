@@ -18,6 +18,8 @@
  *    parte de la decisión clínica anclada.
  *  - aiModelUsed: metadato de la medición (qué modelo de la cascada respondió), no dato clínico.
  *
+ * aiExplanation (justificación de la IA) se incluye solo cuando existe; ver buildHashPayload.
+ *
  * aiLevel sí se incluye: ausente, null o '' se normalizan a null (Mongoose lo guarda como null por
  * defecto), así el hash coincide antes y después de guardar aunque la IA no se haya ejecutado.
  *
@@ -69,6 +71,9 @@ export function buildHashPayload(data: AnyRecord): AnyRecord {
     triageTimestamp: num(data.triageTimestamp),
     estimatedAttentionTime: num(data.estimatedAttentionTime),
     doctorId: str(data.doctorId),
+    // Explicación de la IA (RF-21). Solo se incluye si existe: los registros guardados antes de agregar
+    // este campo no lo tienen, y así conservan exactamente el mismo hash.
+    ...(data.aiExplanation ? { aiExplanation: str(data.aiExplanation) } : {}),
   };
 }
 

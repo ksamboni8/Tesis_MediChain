@@ -775,6 +775,8 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       finalEsiLevel: finalLevel,
       aiLevel: aiTriageResponse?.aiLevel ?? null,
       aiModelUsed: aiTriageResponse?._metrics?.modelUsed ?? null,
+      // Justificación de la IA (RF-21): se guarda y queda protegida por el hash, se acepte o no su nivel
+      ...(aiTriageResponse?.explanation ? { aiExplanation: aiTriageResponse.explanation } : {}),
       // Justificación del médico solo si cambió el nivel de la IA; si no, una etiqueta fija
       overrideReason: suggestedLevel === null
         ? "Sin sugerencia de IA"

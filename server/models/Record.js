@@ -50,6 +50,9 @@ const PatientDataSchema = new mongoose.Schema({
   // Resultado de la IA en este triage (null si no se ejecutó). aiModelUsed no entra en el hash
   aiLevel: { type: Number, min: 1, max: 5, default: null },
   aiModelUsed: { type: String, default: null },
+  // Justificación de la IA (RF-21). Sin valor por defecto: ausente si no hubo análisis, igual que en los
+  // registros anteriores a este campo (el hash la incluye solo cuando existe)
+  aiExplanation: { type: String },
   
   // Tiempos de atención y métricas de rendimiento
   triageTimestamp: { type: Number, required: true },
