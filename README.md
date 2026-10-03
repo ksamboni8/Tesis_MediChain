@@ -1,73 +1,139 @@
-# React + TypeScript + Vite
+# MediChain — Sistema de triage con IoT, IA generativa y anclaje en blockchain
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Prototipo desarrollado como trabajo de grado de Ingeniería en Electrónica y Telecomunicaciones
+(Universidad del Cauca): *Diseño e implementación de un sistema clínico de gestión de triage
+integrado con blockchain*. Autores: Katerine Samboní Guevara y Juan Felipe Paredes Galvis.
 
-Currently, two official plugins are available:
+> **Prototipo académico.** Validado en condiciones controladas, con casos simulados, sensores de
+> prototipado (MAX30102, MLX90614) y la red de prueba Polygon Amoy. No es un dispositivo médico ni
+> está listo para uso clínico.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## Propósito
 
-## React Compiler
+MediChain apoya el registro del triage en urgencias en tres frentes:
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+| Problema | Componente |
+| --- | --- |
+| Transcripción manual de signos vitales | Dispositivo ESP32 que envía FC, SpO2 y temperatura por Bluetooth Low Energy |
+| Variabilidad en la clasificación | Sugerencia de nivel (reglas clínicas + Gemini) que el profesional acepta o modifica |
+| Registros modificables sin rastro | Hash SHA-256 de cada registro anclado en un contrato inteligente en Polygon Amoy |
 
-## Expanding the ESLint configuration
+La auditoría recalcula el hash de cada registro guardado en MongoDB y comprueba que esté anclado en
+el contrato. Si no lo está, el registro se marca como **ALTERADO**.
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+## Arquitectura
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
-
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+```
+ ┌──────────────┐  BLE (Web Bluetooth)  ┌────────────────────────────┐
+ │ ESP32 +      │ ────────────────────▶ │ SPA React (navegador)      │
+ │ MAX30102 +   │                       │  Triage · Admisión ·       │
+ │ MLX90614     │                       │  Auditoría · Admin         │
+ └──────────────┘                       └──────┬──────────────┬──────┘
+                                    REST/JSON  │              │ ethers.js + MetaMask
+                                               ▼              │ (roles y lectura de hashes)
+                              ┌──────────────────────────┐    │
+                              │ Servidor Express (:3000) │    │
+                              │  API · Relayer · Gemini  │    │
+                              └──┬───────────┬───────────┘    │
+                       Mongoose  │           │ JSON-RPC       ▼
+                                 ▼           └──────▶ ┌─────────────────────┐
+                        ┌───────────────┐             │ Contrato            │
+                        │ MongoDB       │             │ MediChainTriage     │
+                        │ (datos        │             │ (Polygon Amoy)      │
+                        │  clínicos)    │             └─────────────────────┘
+                        └───────────────┘
 ```
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+- **Frontend** (`src/`): React 18 + TypeScript + Vite. Vistas en `src/views/`, acceso a API,
+  blockchain y Bluetooth en `src/services/`.
+- **Backend** (`server.ts`, `server/models/`): Express + Mongoose. Calcula el hash, lo firma con la
+  billetera del Relayer y lo ancla en Polygon pagando el gas (Relayer custodial).
+- **Reglas compartidas** (`src/shared/`): campos y serialización del hash (`hashPayload.ts`) y
+  campos obligatorios (`requiredFields.ts`), usados por cliente y servidor.
+- **Firmware** (`arduino/`): captura y estabilización de signos vitales en el ESP32.
+- **Contrato**: `MediChainTriage` (Solidity 0.8.20) en Polygon Amoy,
+  [`0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A`](https://amoy.polygonscan.com/address/0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A).
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
+Los diagramas C4 (contexto y contenedores) y el detalle de diseño están en los capítulos 5 y 6 de
+la monografía.
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
+### Qué detecta la auditoría y qué no
+
+Detecta cualquier cambio en un campo incluido en el hash de un registro guardado. No detecta: el
+borrado de un registro, el reemplazo por los datos de otro registro anclado, cambios en
+`attentionTimestamp` o `aiModelUsed` (excluidos del hash), ni un re-anclaje hecho por quien controle
+la clave del Relayer. El servidor verifica que la wallet del médico esté registrada en el contrato,
+pero no que quien hace la petición la controle.
+
+## Requisitos
+
+- Node.js 18 o superior
+- MongoDB local (por defecto `mongodb://127.0.0.1:27017/medichain_thesis`)
+- Google Chrome o Microsoft Edge (Web Bluetooth) con la extensión MetaMask
+- Una URL RPC de Polygon Amoy y una billetera con POL de prueba para el Relayer
+- Clave de API de Gemini
+- Para el dispositivo: ESP32, MAX30102 y MLX90614 en I2C (SDA GPIO21, SCL GPIO22)
+
+## Configuración
+
+```bash
+npm install
+cp .env.example .env   # y completar los valores
 ```
+
+| Variable | Uso |
+| --- | --- |
+| `GEMINI_API_KEY` | Sugerencia de triage con IA |
+| `RELAYER_PRIVATE_KEY` | Billetera que firma y paga el anclaje en Polygon Amoy |
+| `POLYGON_RPC_URL` | Nodo RPC de Polygon Amoy (chainId 80002) |
+| `PATIENT_SALT` | Sal para seudonimizar la cédula antes de enviarla a la cadena |
+| `MONGODB_URI` | Opcional; MongoDB local por defecto |
+
+La billetera del Relayer y las de los médicos deben estar autorizadas en el contrato
+(`addDoctor`, desde la cuenta propietaria).
+
+## Ejecución
+
+```bash
+npm run dev        # servidor + frontend en http://localhost:3000 (modo desarrollo)
+npm run build      # compila frontend y servidor en dist/
+NODE_ENV=production npm start
+```
+
+En producción **debe** definirse `NODE_ENV=production`: es lo que deshabilita la ruta de simulación
+de ataques (`PATCH /api/hack/:id`).
+
+Firmware: abrir `arduino/MediChain_Estabilizacion/MediChain_Estabilizacion.ino` en el IDE de
+Arduino (núcleo ESP32 de Espressif) y cargarlo. El dispositivo se anuncia como `MediChain_IoT`.
+
+## Pruebas
+
+```bash
+# Paridad del hash cliente/servidor (no requiere MongoDB ni red)
+npx tsx tests/hash-parity.test.mts
+
+# Detección de alteraciones (requiere servidor en desarrollo, MongoDB y POLYGON_RPC_URL)
+npx tsx tests/integrity-attack.test.mts                 # muestra el plan, no modifica nada
+npx tsx tests/integrity-attack.test.mts --yes --n=12    # ejecuta la prueba
+npx tsx tests/integrity-attack.test.mts --restore=tests/results/<archivo>.json --yes
+```
+
+Los resultados usados en la monografía están en `tests/results/`. Los datos de pacientes que
+aparecen en ellos son ficticios.
+
+## Estructura
+
+```
+server.ts                 API, Relayer, integración con Gemini y blockchain
+server/models/            Esquemas Mongoose (Record, PendingPatient, TelemetryLog)
+src/views/                Triage, Admisión, Auditoría, Admin, Benchmark, Login
+src/services/             bluetooth, crypto, database, telemetry, web3
+src/shared/               Reglas compartidas cliente/servidor (hash, campos obligatorios)
+src/config/contract.ts    Dirección y ABI del contrato
+arduino/                  Firmware del ESP32
+tests/                    Pruebas de paridad de hash e integridad, y sus resultados
+```
+
+## Licencia
+
+Uso académico. Consultar a los autores para otros usos.
