@@ -25,3 +25,5 @@ dist-ssr
 # Variables de entorno locales con secretos
 .env
 .env.local
+# Monografía (no se publica en el repositorio)
+docs/
