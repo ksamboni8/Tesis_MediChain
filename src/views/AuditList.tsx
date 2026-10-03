@@ -7,9 +7,10 @@ import { CheckCircle, AlertTriangle, FileSearch, Clock, Hash, FileText, ChevronD
 import { format, differenceInMinutes } from 'date-fns';
 import { HybridRecord, UserRole } from '../types';
 
-// VALIDO: el hash recalculado está anclado en el contrato. ALTERADO: la cadena se leyó completa y el
-// hash no está. NO_VERIFICADO: no se pudo leer la cadena, así que no se puede afirmar ninguna de las dos.
-type IntegrityStatus = 'VALIDO' | 'ALTERADO' | 'NO_VERIFICADO';
+import { IntegrityStatus, IntegrityReason, REASON_TEXT, classifyRecords, findUnlinkedAnchors, AuditInput } from '../shared/anchorAudit';
+
+// Regla de verificación (shared/anchorAudit.ts): VALIDO si la transacción del registro ancló exactamente
+// su hash recalculado; ALTERADO si no; NO_VERIFICADO si no se pudo consultar la cadena o la transacción.
 
 interface AuditListProps {
   userRole?: UserRole; // To decide if we show Edit buttons
@@ -19,8 +20,10 @@ interface AuditListProps {
 
 export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord, onReEvaluateRecord }) => {
   const [mongoRecords, setMongoRecords] = useState<HybridRecord[]>([]);
-  const [chainRecords, setChainRecords] = useState<any[]>([]);
   const [validationMap, setValidationMap] = useState<Record<string, IntegrityStatus>>({});
+  const [reasonMap, setReasonMap] = useState<Record<string, IntegrityReason>>({});
+  // Hashes anclados sin registro válido: ligados a un registro alterado, o sin ningún registro (eliminación)
+  const [unlinked, setUnlinked] = useState<{ linkedToAltered: any[]; withoutRecord: any[] }>({ linkedToAltered: [], withoutRecord: [] });
   const [chainError, setChainError] = useState<string | null>(null);
   const [calculatedHashMap, setCalculatedHashMap] = useState<Record<string, string>>({}); // NEW: Store actual calculated hashes
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -46,32 +49,44 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
 
       // 2. Todos los hashes anclados en el contrato (no solo los últimos N). Si la cadena no se
       // puede consultar por completo, ningún registro se marca como válido: queda "no verificado".
+      let chainData: any[] = [];
       let anchoredHashes: Set<string> | null = null;
+      let txs = new Map();
       try {
-        const blockchainData = await web3Service.getAllAnchoredRecords();
-        setChainRecords(blockchainData);
-        anchoredHashes = new Set(blockchainData.map(c => String(c.dataHash).toLowerCase()));
+        chainData = await web3Service.getAllAnchoredRecords();
+        anchoredHashes = new Set(chainData.map(c => String(c.dataHash).toLowerCase()));
+        // 3. La transacción de anclaje de cada registro, para comprobar que ancló SU hash
+        txs = await web3Service.getAnchorTransactions(
+          dbData.map(r => r.transactionHash).filter((h): h is string => !!h)
+        );
         setChainError(null);
       } catch (chainErr: any) {
         console.error("No se pudo leer la blockchain para verificar integridad:", chainErr);
-        setChainRecords([]);
+        anchoredHashes = null;
         setChainError(chainErr?.message || 'No se pudo consultar el contrato en Polygon Amoy.');
       }
 
-      // 3. Hash recalculado con los datos que acaban de llegar de MongoDB, comparado SOLO contra la
+      // 4. Hash recalculado con los datos que acaban de llegar de MongoDB, comparado SOLO contra la
       // cadena: nunca contra el blockchainHash guardado en el mismo documento (que podría estar alterado).
-      const vMap: Record<string, IntegrityStatus> = {};
+      const inputs: AuditInput[] = [];
       const cMap: Record<string, string> = {};
       for (const rec of dbData) {
         const currentHash = await generateHash(rec.patientData);
         cMap[rec._id] = currentHash;
-        vMap[rec._id] = anchoredHashes === null
-          ? 'NO_VERIFICADO'
-          : anchoredHashes.has(currentHash.toLowerCase()) ? 'VALIDO' : 'ALTERADO';
+        inputs.push({ id: rec._id, recomputedHash: currentHash, transactionHash: rec.transactionHash, storedHash: rec.blockchainHash });
       }
+      const verdicts = classifyRecords(inputs, anchoredHashes, txs);
+      const vMap: Record<string, IntegrityStatus> = {};
+      const rMap: Record<string, IntegrityReason> = {};
+      verdicts.forEach((v, id) => { vMap[id] = v.status; rMap[id] = v.reason; });
 
       setValidationMap(vMap);
+      setReasonMap(rMap);
       setCalculatedHashMap(cMap);
+      // 5. Hashes anclados sin registro válido (solo si la cadena se leyó completa)
+      setUnlinked(anchoredHashes === null
+        ? { linkedToAltered: [], withoutRecord: [] }
+        : findUnlinkedAnchors(chainData, inputs, verdicts));
     } catch (e: any) {
       console.error("Audit load failed", e);
       setDbError(e.message || "Error al conectar con MongoDB Local");
@@ -129,7 +144,9 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
     );
   }
 
-  if (mongoRecords.length === 0) {
+  // Sin registros y sin anclajes huérfanos: historial vacío. Si hay anclajes sin registro (todos
+  // eliminados), se muestra la vista normal para que aparezca la alerta.
+  if (mongoRecords.length === 0 && unlinked.withoutRecord.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-400">
         <FileSearch className="w-16 h-16 mb-4 opacity-50" />
@@ -162,6 +179,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
       "Nivel Final",
       "Modificado (Override)",
       "Estado Integridad",
+      "Motivo",
       "Hash Blockchain",
       "TxHash"
     ];
@@ -181,6 +199,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
         d.finalEsiLevel,
         hasOverride ? "SI" : "NO",
         integrity === 'VALIDO' ? "VALIDO" : integrity === 'ALTERADO' ? "ALTERADO" : "NO VERIFICADO",
+        reasonMap[rec._id] ?? "SIN_CADENA",
         rec.blockchainHash,
         rec.transactionHash || "N/A"
       ].map(val => `"${val}"`).join(",");
@@ -224,6 +243,35 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
           <span>
             <strong>Integridad no verificada:</strong> no se pudo leer la blockchain ({chainError}). Los registros se muestran como
             "No verificado" hasta que la consulta al contrato funcione; pulse actualizar para reintentar.
+          </span>
+        </div>
+      )}
+
+      {/* Hashes anclados en el contrato que no corresponden a ningún registro válido */}
+      {unlinked.withoutRecord.length > 0 && (
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl text-sm">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+            <span>
+              <strong>{unlinked.withoutRecord.length} registro(s) anclado(s) en la blockchain sin registro en la base de datos.</strong>{' '}
+              El hash fue anclado, pero ningún registro de MongoDB lo reclama: el registro pudo haber sido eliminado.
+            </span>
+          </div>
+          <ul className="mt-2 ml-6 space-y-1 font-mono text-xs">
+            {unlinked.withoutRecord.map(c => (
+              <li key={c.id}>
+                #{c.id} · {format(c.timestamp, 'yyyy-MM-dd HH:mm')} · nivel {c.triageLevel} · {String(c.dataHash).substring(0, 16)}...
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {unlinked.linkedToAltered.length > 0 && (
+        <div className="bg-slate-50 border border-slate-200 text-slate-600 p-3 rounded-xl text-xs flex items-start gap-2">
+          <Info className="w-4 h-4 shrink-0" />
+          <span>
+            Otros {unlinked.linkedToAltered.length} hash(es) anclado(s) corresponden a registros que ya aparecen como alterados
+            (su contenido actual no coincide con lo anclado).
           </span>
         </div>
       )}
@@ -614,13 +662,17 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
                            {isTampered && (
                              <div className="mt-2 text-[10px] text-red-600 font-bold flex items-center gap-1">
                                <AlertTriangle className="w-3 h-3" />
-                               ¡ALERTA DE SEGURIDAD! EL HASH ACTUAL NO ESTÁ ANCLADO EN LA BLOCKCHAIN: LOS DATOS HAN SIDO ALTERADOS
+                               {reasonMap[rec._id] === 'NO_ANCLADO' || !reasonMap[rec._id]
+                                 ? '¡ALERTA DE SEGURIDAD! EL HASH ACTUAL NO ESTÁ ANCLADO EN LA BLOCKCHAIN: LOS DATOS HAN SIDO ALTERADOS'
+                                 : `¡ALERTA DE SEGURIDAD! ${REASON_TEXT[reasonMap[rec._id]].toUpperCase()}`}
                              </div>
                            )}
                            {integrity === 'NO_VERIFICADO' && (
                              <div className="mt-2 text-[10px] text-amber-700 font-bold flex items-center gap-1">
                                <Info className="w-3 h-3" />
-                               No se pudo consultar la blockchain: integridad sin verificar
+                               {reasonMap[rec._id] === 'TX_NO_CONSULTADA'
+                                 ? 'No se pudo consultar la transacción del registro: integridad sin verificar'
+                                 : 'No se pudo consultar la blockchain: integridad sin verificar'}
                              </div>
                            )}
                         </div>

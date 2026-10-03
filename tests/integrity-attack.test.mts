@@ -1,14 +1,16 @@
 // Prueba de integridad (detección de alteraciones) contra el endpoint real PATCH /api/hack/:id.
 //
 // Flujo:
-//  1. Línea base: lee TODOS los hashes anclados en el contrato (Polygon Amoy) y los registros de
-//     GET /api/records; recalcula el hash de cada patientData con cryptoService.generateHash (la misma
-//     función y la misma regla que AuditList: VALIDO si el hash recalculado está anclado en la cadena).
+//  1. Línea base: lee TODOS los hashes anclados en el contrato (Polygon Amoy), los registros de
+//     GET /api/records y la transacción de anclaje de cada uno; clasifica con la misma regla que
+//     AuditList (src/shared/anchorAudit.ts): VALIDO si su transacción ancló su hash recalculado.
 //  2. Toma N registros VALIDO y, por cada uno, altera UN campo que forma parte del hash, vía el endpoint.
-//  3. Confirma en la API que el valor quedó realmente guardado (alteración efectiva).
-//  4. Vuelve a leer cadena + registros y clasifica: alterado detectado si pasa a ALTERADO.
-//     También verifica que los registros no tocados sigan VALIDO (falsos positivos).
-//  5. Guarda en tests/results/ el JSON completo (incluye los patientData originales) y un CSV.
+//     Con --extended, además: reemplaza el contenido de un registro por el de otro registro anclado
+//     (vía el endpoint) y elimina otro registro directamente en MongoDB.
+//  3. Confirma que cada alteración quedó realmente guardada (alteración efectiva).
+//  4. Vuelve a auditar: una alteración se detecta si el registro pasa a ALTERADO; una eliminación, si su
+//     hash anclado aparece como anclado sin registro. Los registros no tocados deben seguir VALIDO.
+//  5. Guarda en tests/results/ el JSON completo (incluye los datos originales) y un CSV.
 //
 // Requisitos: servidor corriendo (npm run dev), MongoDB local, POLYGON_RPC_URL y
 // ENABLE_ATTACK_SIMULATION=true en .env, y NODE_ENV
@@ -18,6 +20,8 @@
 //   npx tsx tests/integrity-attack.test.mts                    -> solo muestra el plan (no modifica nada)
 //   npx tsx tests/integrity-attack.test.mts --yes --n=10       -> ejecuta la prueba sobre 10 registros
 //   npx tsx tests/integrity-attack.test.mts --yes --ids=a,b,c  -> ejecuta sobre esos _id
+//   npx tsx tests/integrity-attack.test.mts --yes --n=12 --extended
+//                                                              -> agrega reemplazo y eliminación
 //   npx tsx tests/integrity-attack.test.mts --restore=tests/results/integrity-XXXX.json --yes
 //                                                              -> restaura los valores originales
 // Opcionales: --api=http://localhost:3000/api   ADMIN_WALLET=0x... (por defecto se usa owner() del contrato)
@@ -29,8 +33,9 @@ import path from 'path';
 const { ethers } = await import('ethers');
 const { generateHash } = await import('../src/services/cryptoService.ts');
 const { CONTRACT_ABI, CONTRACT_ADDRESS } = await import('../src/config/contract.ts');
+const { readAnchorTx, classifyRecords, findUnlinkedAnchors } = await import('../src/shared/anchorAudit.ts');
 
-type Status = 'VALIDO' | 'ALTERADO';
+type Status = 'VALIDO' | 'ALTERADO' | 'NO_VERIFICADO';
 type Mutation = { field: string; before: unknown; after: unknown; body: Record<string, unknown> };
 
 const args = Object.fromEntries(process.argv.slice(2).map(a => {
@@ -47,9 +52,9 @@ if (!rpcUrl) throw new Error('POLYGON_RPC_URL no está configurado en .env');
 const provider = new ethers.JsonRpcProvider(rpcUrl, { chainId: 80002, name: 'polygon-amoy' }, { staticNetwork: true });
 const contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, provider);
 
-async function readAnchoredHashes(): Promise<Set<string>> {
+async function readChain(): Promise<any[]> {
   const total = Number(await contract.getTotalRecords());
-  if (total === 0) return new Set();
+  if (total === 0) return [];
   let recs: any[] = Array.from(await contract.getLatestRecords(total));
   if (recs.length !== total) {
     const byIndex: any[] = [];
@@ -62,7 +67,23 @@ async function readAnchoredHashes(): Promise<Set<string>> {
   if (recs.length !== total) {
     throw new Error(`Se leyeron ${recs.length} de ${total} registros anclados; la verificación no sería completa.`);
   }
-  return new Set(recs.map(r => String(r.dataHash).toLowerCase()));
+  return recs.map(r => ({ id: Number(r.id), dataHash: String(r.dataHash).toLowerCase() }));
+}
+
+// Transacciones de anclaje (readAnchorTx), con caché: una transacción confirmada no cambia.
+const txCache = new Map<string, any>();
+async function readTxs(hashes: string[]): Promise<Map<string, any>> {
+  const pending = [...new Set(hashes.map(h => h.toLowerCase()))];
+  const out = new Map<string, any>();
+  const worker = async () => {
+    for (let h = pending.shift(); h !== undefined; h = pending.shift()) {
+      if (txCache.has(h)) { out.set(h, txCache.get(h)); continue; }
+      try { const r = await readAnchorTx(provider, h); txCache.set(h, r); out.set(h, r); }
+      catch (err: any) { console.error(`  No se pudo consultar ${h}: ${err.shortMessage || err.message}`); out.set(h, null); }
+    }
+  };
+  await Promise.all(Array.from({ length: 5 }, worker));
+  return out;
 }
 
 // ---------- API ----------
@@ -82,14 +103,34 @@ async function hack(id: string, body: Record<string, unknown>, adminWallet: stri
   return { status: res.status, payload };
 }
 
-// Estado de integridad con la regla de AuditList (líneas 61-71).
-async function classify(records: any[], anchored: Set<string>) {
-  const out = new Map<string, { hash: string; status: Status }>();
+// Estado de integridad con la misma regla que AuditList (src/shared/anchorAudit.ts): cada registro se
+// verifica contra su propia transacción, y se listan los hashes anclados sin registro válido.
+async function audit(records: any[]) {
+  const chain = await readChain();
+  const anchored = new Set(chain.map(c => c.dataHash));
+  const txs = await readTxs(records.map(r => r.transactionHash).filter(Boolean));
+  const inputs: any[] = [];
   for (const rec of records) {
-    const hash = await generateHash(rec.patientData);
-    out.set(rec._id, { hash, status: anchored.has(hash.toLowerCase()) ? 'VALIDO' : 'ALTERADO' });
+    inputs.push({ id: rec._id, recomputedHash: await generateHash(rec.patientData), transactionHash: rec.transactionHash, storedHash: rec.blockchainHash });
   }
-  return out;
+  const verdicts = classifyRecords(inputs, anchored, txs);
+  const status = new Map<string, { hash: string; status: Status; reason: string }>();
+  for (const i of inputs) {
+    const v = verdicts.get(i.id)!;
+    status.set(i.id, { hash: i.recomputedHash, status: v.status as Status, reason: v.reason });
+  }
+  const unlinked = findUnlinkedAnchors(chain, inputs, verdicts);
+  return { status, anchoredCount: anchored.size, withoutRecord: new Set(unlinked.withoutRecord.map(c => c.dataHash)) };
+}
+
+// Acceso directo a MongoDB, solo para el escenario de eliminación (--extended): quien tiene acceso a la
+// base de datos puede borrar un documento sin pasar por la API.
+const MONGO_URI = process.env.MONGODB_URI || 'mongodb://127.0.0.1:27017/medichain_thesis';
+async function withRecords<T>(fn: (col: any, mongo: any) => Promise<T>): Promise<T> {
+  const mongoose = (await import('mongoose')).default;
+  await mongoose.connect(MONGO_URI, { serverSelectionTimeoutMS: 5000 });
+  try { return await fn(mongoose.connection.db!.collection('hybridrecords'), mongoose.mongo); }
+  finally { await mongoose.disconnect(); }
 }
 
 // Comparación independiente del orden de claves, para confirmar que el valor quedó guardado.
@@ -157,10 +198,18 @@ if (args.restore) {
   if (!CONFIRMED) { console.log('Modo simulación: agregue --yes para restaurar.'); process.exit(0); }
   const adminWallet = await resolveAdminWallet();
   for (const r of targets) {
+    if (r.kind === 'eliminacion') {
+      // Se reinserta el documento original completo (mismo _id), guardado en EJSON
+      await withRecords(async (col, mongo) => {
+        await col.insertOne(mongo.BSON.EJSON.parse(r.originalDocument));
+      });
+      console.log(`  ${r.recordId}  reinsertado`);
+      continue;
+    }
     const res = await hack(r.recordId, r.originalPatientData, adminWallet);
     console.log(`  ${r.recordId}  HTTP ${res.status}`);
   }
-  const status = await classify(await getRecords(), await readAnchoredHashes());
+  const { status } = await audit(await getRecords());
   const ok = targets.filter((r: any) => status.get(r.recordId)?.status === 'VALIDO').length;
   console.log(`Restaurados como VALIDO: ${ok}/${targets.length}`);
   process.exit(ok === targets.length ? 0 : 1);
@@ -168,11 +217,11 @@ if (args.restore) {
 
 // ---------- 1. Línea base ----------
 console.log(`API: ${API}\nContrato: ${CONTRACT_ADDRESS}`);
-const anchored0 = await readAnchoredHashes();
 const records0 = await getRecords();
-const status0 = await classify(records0, anchored0);
+const audit0 = await audit(records0);
+const status0 = audit0.status;
 const valid0 = records0.filter(r => status0.get(r._id)!.status === 'VALIDO');
-console.log(`Línea base: ${records0.length} registros en MongoDB, ${anchored0.size} hashes anclados, ${valid0.length} VALIDO, ${records0.length - valid0.length} ALTERADO`);
+console.log(`Línea base: ${records0.length} registros en MongoDB, ${audit0.anchoredCount} hashes anclados, ${valid0.length} VALIDO, ${records0.length - valid0.length} no válidos, ${audit0.withoutRecord.size} anclados sin registro`);
 
 let targets: any[];
 if (typeof args.ids === 'string') {
@@ -191,6 +240,20 @@ console.log(`\nPlan (${plan.length} alteraciones):`);
 for (const { rec, mutation } of plan) {
   console.log(`  ${rec._id}  ${mutation.field}: ${JSON.stringify(mutation.before)} -> ${JSON.stringify(mutation.after)}`);
 }
+
+// Escenarios adicionales (--extended), sobre registros VALIDO que no están entre los alterados:
+//  - reemplazo: el contenido de "victima" se reemplaza por el de "fuente", otro registro anclado
+//    ("fuente" no se modifica y sigue como control);
+//  - eliminación: "eliminado" se borra directamente en MongoDB.
+const EXTENDED = args.extended === true;
+const spare = valid0.filter(r => !targets.some(t => t._id === r._id));
+let victim: any = null, source: any = null, deleted: any = null;
+if (EXTENDED) {
+  if (spare.length < 3) throw new Error(`--extended necesita 3 registros VALIDO fuera de los alterados; hay ${spare.length}.`);
+  [victim, deleted, source] = spare;
+  console.log(`  ${victim._id}  reemplazo por el contenido de ${source._id}`);
+  console.log(`  ${deleted._id}  eliminación directa en MongoDB`);
+}
 if (!CONFIRMED) {
   console.log('\nModo simulación: no se modificó nada. Agregue --yes para ejecutar la prueba.');
   process.exit(0);
@@ -204,6 +267,7 @@ const results: any[] = [];
 for (const { rec, mutation } of plan) {
   const res = await hack(rec._id, mutation.body, adminWallet);
   results.push({
+    kind: 'campo',
     recordId: rec._id,
     patientName: rec.patientData.name,
     field: mutation.field,
@@ -217,18 +281,64 @@ for (const { rec, mutation } of plan) {
   console.log(`  PATCH ${rec._id} (${mutation.field})  HTTP ${res.status}`);
 }
 
+if (EXTENDED) {
+  // Reemplazo: se copia todo el patientData de "fuente" en "victima" por el endpoint de simulación
+  const res = await hack(victim._id, source.patientData, adminWallet);
+  results.push({
+    kind: 'reemplazo', recordId: victim._id, patientName: victim.patientData.name,
+    field: 'patientData (completo)', before: victim.patientData.id, after: `contenido de ${source._id}`,
+    httpStatus: res.status, httpResponse: res.payload, hashBefore: status0.get(victim._id)!.hash,
+    // Campos que trajo la fuente y la víctima no tenía: al restaurar se ponen en null (el hash
+    // normaliza null y ausente al mismo valor), para no dejar restos de la fuente
+    originalPatientData: {
+      ...Object.fromEntries(Object.keys(source.patientData).filter(k => !(k in victim.patientData)).map(k => [k, null])),
+      ...victim.patientData,
+    },
+  });
+  console.log(`  PATCH ${victim._id} (reemplazo)  HTTP ${res.status}`);
+
+  // Eliminación directa en MongoDB; el documento completo se guarda en EJSON para poder reinsertarlo
+  const originalDocument = await withRecords(async (col, mongo) => {
+    const _id = new mongo.ObjectId(deleted._id);
+    const doc = await col.findOne({ _id });
+    if (!doc) throw new Error(`No se encontró ${deleted._id} en MongoDB`);
+    await col.deleteOne({ _id });
+    return mongo.BSON.EJSON.stringify(doc, { relaxed: false });
+  });
+  results.push({
+    kind: 'eliminacion', recordId: deleted._id, patientName: deleted.patientData.name,
+    field: 'documento completo', before: 'presente', after: 'eliminado',
+    httpStatus: 200, httpResponse: { mongo: 'deleteOne' }, hashBefore: status0.get(deleted._id)!.hash,
+    originalPatientData: deleted.patientData, originalDocument,
+  });
+  console.log(`  DELETE ${deleted._id} (MongoDB)`);
+}
+
 // ---------- 3 y 4. Verificación ----------
-const anchored1 = await readAnchoredHashes();
 const records1 = await getRecords();
-const status1 = await classify(records1, anchored1);
+const audit1 = await audit(records1);
+const status1 = audit1.status;
 const byId = new Map(records1.map(r => [r._id, r]));
 
 for (const r of results) {
   const stored = byId.get(r.recordId)?.patientData;
-  r.storedValue = getPath(stored, r.field);
-  r.effective = r.httpStatus === 200 && canon(r.storedValue) === canon(r.after) && canon(r.storedValue) !== canon(r.before);
+  if (r.kind === 'eliminacion') {
+    // Efectiva si el registro ya no está; detectada si su hash anclado aparece como anclado sin registro
+    r.effective = !byId.has(r.recordId);
+    r.statusAfter = audit1.withoutRecord.has(String(r.hashBefore).toLowerCase()) ? 'ANCLADO_SIN_REGISTRO' : 'NO_REPORTADO';
+    r.detected = r.statusAfter === 'ANCLADO_SIN_REGISTRO';
+    continue;
+  }
+  if (r.kind === 'reemplazo') {
+    r.storedValue = stored?.id;
+    r.effective = r.httpStatus === 200 && canon(stored) === canon(source.patientData);
+  } else {
+    r.storedValue = getPath(stored, r.field);
+    r.effective = r.httpStatus === 200 && canon(r.storedValue) === canon(r.after) && canon(r.storedValue) !== canon(r.before);
+  }
   r.hashAfter = status1.get(r.recordId)?.hash;
   r.statusAfter = status1.get(r.recordId)?.status;
+  r.reasonAfter = status1.get(r.recordId)?.reason;
   r.detected = r.statusAfter === 'ALTERADO';
 }
 
@@ -242,8 +352,8 @@ const rate = effective.length ? (100 * detected.length) / effective.length : 0;
 
 console.log('\nResultados:');
 console.table(results.map(r => ({
-  _id: r.recordId, campo: r.field, antes: JSON.stringify(r.before), despues: JSON.stringify(r.after),
-  http: r.httpStatus, efectiva: r.effective, estado: r.statusAfter, detectada: r.detected,
+  _id: r.recordId, tipo: r.kind, campo: r.field, antes: JSON.stringify(r.before), despues: JSON.stringify(r.after),
+  http: r.httpStatus, efectiva: r.effective, estado: r.statusAfter, motivo: r.reasonAfter ?? '', detectada: r.detected,
 })));
 console.log(`Alteraciones intentadas: ${results.length}`);
 console.log(`Alteraciones efectivas (HTTP 200 y valor guardado): ${effective.length}`);
@@ -258,7 +368,8 @@ const jsonFile = path.join(outDir, `integrity-${stamp}.json`);
 const csvFile = path.join(outDir, `integrity-${stamp}.csv`);
 fs.writeFileSync(jsonFile, JSON.stringify({
   startedAt, finishedAt: new Date().toISOString(), api: API, contract: CONTRACT_ADDRESS, adminWallet,
-  baseline: { records: records0.length, anchoredHashes: anchored0.size, valid: valid0.length },
+  rule: 'transacción propia (src/shared/anchorAudit.ts)', extended: EXTENDED,
+  baseline: { records: records0.length, anchoredHashes: audit0.anchoredCount, valid: valid0.length, anchoredWithoutRecord: audit0.withoutRecord.size },
   summary: {
     attempted: results.length, effective: effective.length, detected: detected.length, detectionRatePct: rate,
     controls: controls.length, falsePositives,
@@ -267,8 +378,8 @@ fs.writeFileSync(jsonFile, JSON.stringify({
 }, null, 2));
 const csvEsc = (v: unknown) => `"${String(typeof v === 'string' ? v : JSON.stringify(v)).replace(/"/g, '""')}"`;
 fs.writeFileSync(csvFile, [
-  ['recordId', 'campo', 'antes', 'despues', 'http', 'efectiva', 'hashAntes', 'hashDespues', 'estadoDespues', 'detectada'].join(','),
-  ...results.map(r => [r.recordId, r.field, r.before, r.after, r.httpStatus, r.effective, r.hashBefore, r.hashAfter, r.statusAfter, r.detected].map(csvEsc).join(',')),
+  ['recordId', 'tipo', 'campo', 'antes', 'despues', 'http', 'efectiva', 'hashAntes', 'hashDespues', 'estadoDespues', 'motivo', 'detectada'].join(','),
+  ...results.map(r => [r.recordId, r.kind, r.field, r.before, r.after, r.httpStatus, r.effective, r.hashBefore, r.hashAfter ?? '', r.statusAfter, r.reasonAfter ?? '', r.detected].map(csvEsc).join(',')),
 ].join('\n'));
 console.log(`\nEvidencia: ${jsonFile}\n           ${csvFile}`);
 console.log(`Para restaurar: npx tsx tests/integrity-attack.test.mts --restore=${jsonFile} --yes`);

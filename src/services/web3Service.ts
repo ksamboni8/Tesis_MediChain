@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '../config/contract';
 import { UserRole } from '../types';
+import { AnchorTx, readAnchorTx } from '../shared/anchorAudit';
 
 declare global {
   interface Window {
@@ -155,6 +156,36 @@ export class Web3Service {
       throw new Error(`Se leyeron ${records.length} de ${total} registros anclados; la verificación no sería completa.`);
     }
     return records;
+  }
+
+  // Lee la transacción de anclaje de cada registro (readAnchorTx). Una transacción confirmada no
+  // cambia, así que los resultados se guardan en caché; los errores de red no se guardan y quedan como
+  // null (el registro se reporta como no verificado, no como alterado).
+  private anchorTxCache = new Map<string, AnchorTx>();
+
+  async getAnchorTransactions(txHashes: string[]): Promise<Map<string, AnchorTx | null>> {
+    if (!window.ethereum) {
+      throw new Error('No hay proveedor de blockchain (MetaMask) disponible para consultar las transacciones.');
+    }
+    const provider = this.provider ?? new ethers.BrowserProvider(window.ethereum);
+    const pending = [...new Set(txHashes.map(h => h.toLowerCase()))];
+    const out = new Map<string, AnchorTx | null>();
+    const worker = async () => {
+      for (let h = pending.shift(); h !== undefined; h = pending.shift()) {
+        const cached = this.anchorTxCache.get(h);
+        if (cached) { out.set(h, cached); continue; }
+        try {
+          const result = await readAnchorTx(provider, h);
+          this.anchorTxCache.set(h, result);
+          out.set(h, result);
+        } catch (err) {
+          console.error(`No se pudo consultar la transacción ${h}:`, err);
+          out.set(h, null);
+        }
+      }
+    };
+    await Promise.all(Array.from({ length: 5 }, worker)); // 5 consultas en paralelo
+    return out;
   }
 
   private mapRecords(records: any[]): any[] {
