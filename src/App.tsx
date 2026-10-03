@@ -6,7 +6,7 @@ import { AdminConsole } from './views/AdminConsole';
 import { AdmissionOffice } from './views/AdmissionOffice';
 import { BenchmarkConsole } from './views/BenchmarkConsole';
 import { UserRole, HybridRecord } from './types';
-import { Shield, LayoutDashboard, LogOut, PlusCircle, Database, FileClock, UserPlus, Activity } from 'lucide-react';
+import { Shield, LogOut, PlusCircle, Database, FileClock, UserPlus, BarChart3 } from 'lucide-react';
 
 const App: React.FC = () => {
   const [userRole, setUserRole] = useState<UserRole>(UserRole.NONE);
@@ -27,7 +27,7 @@ const App: React.FC = () => {
       setCurrentView('admission');
     } else if (userRole === UserRole.DOCTOR) {
       // Keep existing logic: if in correction mode, stay there, else triage
-      if (currentView !== 'triage' && currentView !== 'audit' && currentView !== 'benchmark') {
+      if (currentView !== 'triage' && currentView !== 'audit') {
         setCurrentView('triage');
       }
     }
@@ -120,15 +120,6 @@ const App: React.FC = () => {
             </button>
           )}
 
-          {/* Benchmarking & Telemetry View for All Authorized Roles */}
-          <button
-            onClick={() => setCurrentView('benchmark')}
-            className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'benchmark' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
-          >
-            <Activity className="w-5 h-5 text-indigo-400" />
-            <span>Benchmarking Tesis</span>
-          </button>
-
           {/* Admin Database View: ONLY for Admin */}
           {userRole === UserRole.ADMIN && (
             <button
@@ -137,6 +128,17 @@ const App: React.FC = () => {
             >
               <Database className="w-5 h-5" />
               <span>Base de Datos</span>
+            </button>
+          )}
+
+          {/* Telemetry / Benchmark View: ONLY for Admin (herramienta de análisis, no clínica) */}
+          {userRole === UserRole.ADMIN && (
+            <button
+              onClick={() => setCurrentView('benchmark')}
+              className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl transition-colors ${currentView === 'benchmark' ? 'bg-red-600 text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-white'}`}
+            >
+              <BarChart3 className="w-5 h-5" />
+              <span>Telemetría</span>
             </button>
           )}
 
@@ -160,7 +162,7 @@ const App: React.FC = () => {
             {currentView === 'audit' && 'Historial Clínico Unificado'}
             {currentView === 'admin' && 'Panel de Control - Base de Datos Central'}
             {currentView === 'admission' && 'Módulo de Admisión y Recepción'}
-            {currentView === 'benchmark' && 'Medición de Desempeño y Telemetría'}
+            {currentView === 'benchmark' && 'Telemetría y Evaluación de Desempeño'}
           </h1>
         </header>
 
@@ -185,12 +187,12 @@ const App: React.FC = () => {
             />
           )}
           {currentView === 'admin' && (
-            <AdminConsole />
+            <AdminConsole walletAddress={walletAddress} />
           )}
           {currentView === 'admission' && (
             <AdmissionOffice />
           )}
-          {currentView === 'benchmark' && (
+          {currentView === 'benchmark' && userRole === UserRole.ADMIN && (
             <BenchmarkConsole />
           )}
         </div>

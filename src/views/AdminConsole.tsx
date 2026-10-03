@@ -4,7 +4,11 @@ import type { HybridRecord } from '../types';
 import { Card } from '../components/Card';
 import { Database, Save, RefreshCw, FileX, Server, ShieldAlert, Lock } from 'lucide-react';
 
-export const AdminConsole: React.FC = () => {
+interface AdminConsoleProps {
+  walletAddress: string;
+}
+
+export const AdminConsole: React.FC<AdminConsoleProps> = ({ walletAddress }) => {
   const [records, setRecords] = useState<HybridRecord[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [jsonData, setJsonData] = useState<string>('');
@@ -41,15 +45,27 @@ export const AdminConsole: React.FC = () => {
       const parsedData = JSON.parse(jsonData);
       
       // Execute the direct update via API
-      await dbService.directHackUpdate(selectedId, parsedData);
-      
+      await dbService.directHackUpdate(selectedId, parsedData, walletAddress);
+
       alert("REGISTRO ACTUALIZADO: Los datos han sido sobrescritos en la Base de Datos Centralizada.\n\nNota: Al no pasar por el Smart Contract, se generará una alerta de integridad en la vista de Auditoría.");
-      
+
       loadRecords();
-    } catch (e) {
-      alert("Error: El formato JSON no es válido.");
+    } catch (e: any) {
+      alert(e?.message || "Error: El formato JSON no es válido.");
     }
   };
+
+  // RNF-07: Deshabilitar simulación en producción — este panel permite
+  // manipulación directa de la BD sin firma blockchain y solo debe existir en desarrollo.
+  if (!import.meta.env.DEV) {
+    return (
+      <div className="p-8 text-center text-slate-400 bg-slate-50 rounded-xl border-2 border-dashed border-slate-200">
+        <ShieldAlert className="w-10 h-10 mx-auto mb-3 opacity-40" />
+        <p className="font-medium text-slate-600">Consola de simulación no disponible</p>
+        <p className="text-sm">Esta funcionalidad está deshabilitada en entornos de producción.</p>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

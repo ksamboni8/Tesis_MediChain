@@ -1,4 +1,4 @@
-import type { TelemetryLog, MetricSummary } from '../types';
+import type { TelemetryLog, MetricSummary, MsMetricSummary, CostMetricSummary } from '../types';
 
 const TELEMETRY_STORAGE_KEY = 'medichain_telemetry_logs_v1';
 
@@ -31,15 +31,24 @@ export const telemetryService = {
     return this.getLogsFromCache();
   },
 
-  // Save a new log entry to MongoDB and localStorage
-  async saveLog(log: Omit<TelemetryLog, 'id' | 'timestamp'>): Promise<TelemetryLog> {
+  // Save a new log entry to MongoDB and localStorage.
+  // persisted = false si MongoDB no confirmó el guardado (el registro queda solo en localStorage);
+  // el llamador debe avisarlo para no perder mediciones sin darse cuenta.
+  async saveLog(log: Omit<TelemetryLog, 'id' | 'timestamp'>): Promise<{ entry: TelemetryLog; persisted: boolean; error?: string }> {
     const newEntry: TelemetryLog = {
       ...log,
       id: 'TL-' + Date.now().toString(36).toUpperCase() + '-' + Math.floor(Math.random() * 1000),
       timestamp: Date.now(),
       isRealMeasurement: log.isRealMeasurement !== false,
       isBleConnected: !!log.isBleConnected,
-      t_iot: log.t_iot !== undefined ? log.t_iot : null
+      t_iot: log.t_iot !== undefined ? log.t_iot : null,
+      // Costos por triage: ausente → null (nunca 0 ni un valor de relleno)
+      gas_used: log.gas_used ?? null,
+      effective_gas_price_wei: log.effective_gas_price_wei ?? null,
+      cost_pol: log.cost_pol ?? null,
+      ai_tokens_in: log.ai_tokens_in ?? null,
+      ai_tokens_out: log.ai_tokens_out ?? null,
+      ai_models_tried: log.ai_models_tried ?? null
     };
 
     // Save locally immediately
@@ -49,16 +58,23 @@ export const telemetryService = {
 
     // Persist in MongoDB backend
     try {
-      await fetch('/api/telemetry/logs', {
+      const res = await fetch('/api/telemetry/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEntry)
       });
-    } catch (e) {
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        const error = `HTTP ${res.status}${errData.error ? ` — ${errData.error}` : ''}`;
+        console.error("Error saving telemetry log to MongoDB:", error, errData);
+        return { entry: newEntry, persisted: false, error };
+      }
+    } catch (e: any) {
       console.error("Error saving telemetry log to MongoDB:", e);
+      return { entry: newEntry, persisted: false, error: e?.message || 'Fallo de red' };
     }
 
-    return newEntry;
+    return { entry: newEntry, persisted: true };
   },
 
   // Clear all telemetry logs from MongoDB & LocalStorage
@@ -83,9 +99,9 @@ export const telemetryService = {
     if (!rawData || rawData.length === 0) {
       return [
         { phase: '1. Adquisición y Estabilización IoT (BLE Hardware)', min: 0, avg: 0, max: 0, stdDev: 0 },
-        { phase: '2. Inferencia y análisis de IA (Gemini 3.6 Flash)', min: 0, avg: 0, max: 0, stdDev: 0 },
-        { phase: '3. Persistencia BD MongoDB y Hashing SHA-256', min: 0, avg: 0, max: 0, stdDev: 0 },
-        { phase: '4. Tiempo de Respuesta Total a la UI (Medido)', min: 0, avg: 0, max: 0, stdDev: 0 },
+        { phase: '2. Inferencia y análisis de IA (Gemini, modelo variable)', min: 0, avg: 0, max: 0, stdDev: 0 },
+        { phase: '3. Persistencia en MongoDB', min: 0, avg: 0, max: 0, stdDev: 0 },
+        { phase: '4. Tiempo de respuesta al guardar (medido en cliente)', min: 0, avg: 0, max: 0, stdDev: 0 },
         { phase: '5. Anclaje en Blockchain (Relayer / Polygon Amoy)', min: 0, avg: 0, max: 0, stdDev: 0 },
       ];
     }
@@ -115,46 +131,135 @@ export const telemetryService = {
     const iotValues = bleLogs.map(l => l.t_iot as number);
     const iotStats = bleLogs.length > 0 ? calcStats(iotValues) : { min: 0, avg: 0, max: 0, stdDev: 0 };
 
-    const aiStats = calcStats(evalData.map(l => l.t_ai));
+    // Los campos en null (sin métrica real) se excluyen de la estadística de su fase
+    const measured = (values: (number | null)[]) => values.filter((v): v is number => typeof v === 'number');
+    const aiStats = calcStats(measured(evalData.map(l => l.t_ai)));
     const dbStats = calcStats(evalData.map(l => l.t_db_hash));
-    const uiStats = calcStats(evalData.map(l => l.t_ui));
-    const bcStats = calcStats(evalData.map(l => l.t_blockchain));
+    const uiStats = calcStats(measured(evalData.map(l => l.t_ui)));
+    const bcStats = calcStats(measured(evalData.map(l => l.t_blockchain)));
 
     return [
       { phase: '1. Adquisición y Estabilización IoT (BLE Hardware)', ...iotStats },
-      { phase: '2. Inferencia y análisis de IA (Gemini 3.6 Flash)', ...aiStats },
-      { phase: '3. Persistencia BD MongoDB y Hashing SHA-256', ...dbStats },
-      { phase: '4. Tiempo de Respuesta Total a la UI (Medido)', ...uiStats },
+      { phase: '2. Inferencia y análisis de IA (Gemini, modelo variable)', ...aiStats },
+      { phase: '3. Persistencia en MongoDB', ...dbStats },
+      { phase: '4. Tiempo de respuesta al guardar (medido en cliente)', ...uiStats },
       { phase: '5. Anclaje en Blockchain (Relayer / Polygon Amoy)', ...bcStats },
     ];
   },
 
+  // Estadísticas (ms) de las operaciones criptográficas del servidor: [0] hash SHA-256, [1] firma ECDSA.
+  // Se excluyen null y los registros previos que no tienen estos campos (undefined). n = muestras con valor.
+  calculateCryptoSummary(logs?: TelemetryLog[]): MsMetricSummary[] {
+    const rawData = logs || this.getLogsFromCache();
+    const validData = rawData.filter(l => l.isRealMeasurement !== false);
+
+    const statsMs = (phase: string, values: (number | null | undefined)[]): MsMetricSummary => {
+      const nums = values.filter((v): v is number => typeof v === 'number');
+      if (nums.length === 0) return { phase, n: 0, min: 0, avg: 0, max: 0, stdDev: 0 };
+      const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+      const variance = nums.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / nums.length;
+      return {
+        phase,
+        n: nums.length,
+        min: Number(Math.min(...nums).toFixed(3)),
+        avg: Number(avg.toFixed(3)),
+        max: Number(Math.max(...nums).toFixed(3)),
+        stdDev: Number(Math.sqrt(variance).toFixed(3))
+      };
+    };
+
+    return [
+      statsMs('Cálculo del hash SHA-256 (servidor)', validData.map(l => l.t_hash_ms)),
+      statsMs('Firma ECDSA del Relayer (servidor)', validData.map(l => l.t_firma_ms)),
+    ];
+  },
+
+  // Estadísticas de costo por triage. Se excluyen null y los registros previos sin estos campos
+  // (undefined): n = muestras con dato real. Sin redondeo; la vista decide cuántos decimales mostrar.
+  calculateCostSummary(logs?: TelemetryLog[]): CostMetricSummary[] {
+    const rawData = logs || this.getLogsFromCache();
+    const validData = rawData.filter(l => l.isRealMeasurement !== false);
+
+    // wei y POL se guardan como texto decimal exacto; se convierten a número solo para la estadística
+    const toNum = (v: number | string | null | undefined): number | null => {
+      if (typeof v === 'number') return Number.isFinite(v) ? v : null;
+      if (typeof v === 'string' && v.trim() !== '') { const n = Number(v); return Number.isFinite(n) ? n : null; }
+      return null;
+    };
+    const stats = (phase: string, unit: string, decimals: number, values: (number | string | null | undefined)[]): CostMetricSummary => {
+      const nums = values.map(toNum).filter((v): v is number => v !== null);
+      if (nums.length === 0) return { phase, unit, decimals, n: 0, min: 0, avg: 0, max: 0, stdDev: 0 };
+      const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+      const variance = nums.reduce((a, b) => a + Math.pow(b - avg, 2), 0) / nums.length;
+      return { phase, unit, decimals, n: nums.length, min: Math.min(...nums), avg, max: Math.max(...nums), stdDev: Math.sqrt(variance) };
+    };
+    const weiToGwei = (v: string | null | undefined) => { const n = toNum(v); return n === null ? null : n / 1e9; };
+
+    return [
+      stats('Gas usado por transacción', 'gas', 0, validData.map(l => l.gas_used)),
+      stats('Precio efectivo del gas', 'gwei', 3, validData.map(l => weiToGwei(l.effective_gas_price_wei))),
+      stats('Costo de anclaje por triage', 'POL', 8, validData.map(l => l.cost_pol)),
+      stats('Tokens de entrada (Gemini)', 'tokens', 0, validData.map(l => l.ai_tokens_in)),
+      stats('Tokens de salida (Gemini)', 'tokens', 0, validData.map(l => l.ai_tokens_out)),
+      stats('Modelos probados hasta respuesta', 'modelos', 2, validData.map(l => l.ai_models_tried)),
+    ];
+  },
+
   // Generate complete LaTeX text for Section 7.4 of the thesis
-  generateFullSection74Latex(summary: MetricSummary[], sampleSize: number, totalLogsCount: number = sampleSize): string {
+  generateFullSection74Latex(summary: MetricSummary[], sampleSize: number, totalLogsCount: number = sampleSize, cryptoSummary: MsMetricSummary[] = []): string {
     const iot = summary[0] || { min: 0, avg: 0, max: 0, stdDev: 0 };
     const ai = summary[1] || { min: 3.1, avg: 5.42, max: 7.2, stdDev: 0.88 };
     const db = summary[2] || { min: 0.04, avg: 0.08, max: 0.22, stdDev: 0.03 };
     const ui = summary[3] || { min: 4.2, avg: 7.35, max: 10.1, stdDev: 1.12 };
     const bc = summary[4] || { min: 2.1, avg: 7.84, max: 14.2, stdDev: 2.65 };
 
+    // Subsección de operaciones criptográficas (ms). Sin muestras → se indica explícitamente, sin ceros.
+    const [hashRow, firmaRow] = cryptoSummary;
+    const msRow = (r?: MsMetricSummary) => r && r.n > 0
+      ? `${r.phase} & ${r.n} & ${r.min.toFixed(3)} & ${r.avg.toFixed(3)} & ${r.max.toFixed(3)} & $\\pm ${(r.stdDev ?? 0).toFixed(3)}$ \\\\ \\hline`
+      : `${r?.phase ?? '—'} & 0 & \\multicolumn{4}{c|}{Sin muestras registradas} \\\\ \\hline`;
+    const rnf02Text = hashRow && hashRow.n > 0
+      ? `El tiempo máximo observado para el cálculo del hash fue de $\\mathbf{${hashRow.max.toFixed(3)} \\text{ ms}}$ (promedio de $${hashRow.avg.toFixed(3)} \\text{ ms}$ sobre $n = ${hashRow.n}$ registros), ${hashRow.max <= 500 ? 'por debajo' : 'por encima'} del umbral de 500~ms establecido en el RNF-02${hashRow.max <= 500 ? ', que se cumple en la totalidad de las muestras' : ''}.`
+      : `No hay registros con el tiempo de cálculo del hash, por lo que el RNF-02 no puede evaluarse con esta muestra.`;
+    const cryptoSection = `
+
+\\subsection{Operaciones criptográficas en el servidor}
+\\label{subsec:operaciones_criptograficas}
+
+Durante el guardado, el servidor calcula el hash SHA-256 determinístico del expediente (función \\texttt{generateHashBackend}, módulo \\texttt{crypto} de Node.js) y lo firma con la clave ECDSA secp256k1 del \\textit{Relayer}. Ambas operaciones se miden por separado en el servidor con \\texttt{performance.now()} y se reportan en milisegundos. El tamaño de muestra $n$ corresponde a los registros que incluyen cada métrica.
+
+\\begin{table}[h!]
+\\centering
+\\caption{Tiempos de las operaciones criptográficas en el servidor (ms).}
+\\label{tab:operaciones_criptograficas}
+\\begin{tabular}{|l|c|c|c|c|c|}
+\\hline
+\\textbf{Operación} & \\textbf{$n$} & \\textbf{Mín. (ms)} & \\textbf{Promedio (ms)} & \\textbf{Máx. (ms)} & \\textbf{Desv. Est. ($\\sigma$)} \\\\ \\hline
+${msRow(hashRow)}
+${msRow(firmaRow)}
+\\end{tabular}
+\\end{table}
+
+${rnf02Text}`;
+
     return `\\section{Evaluación de desempeño}
 \\label{sec:evaluacion_desempeno}
 
 En esta sección se presenta la evaluación experimental del prototipo desarrollado, analizando de manera rigurosa los tiempos de respuesta, latencias de procesamiento de Inteligencia Artificial (IA), tiempos de almacenamiento en la base de datos MongoDB, propagación en la red \\textit{blockchain} Polygon y tiempos de respuesta de la interfaz de usuario (UI).
 
-Todas las mediciones son almacenadas de forma inmutable y trazable en la base de datos MongoDB junto a los registros clínicos de la aplicación, garantizando la reproducibilidad metodológica y la integridad de la evidencia empírica para la tesis. Las pruebas se ejecutaron sobre un conjunto de $N = ${sampleSize}$ ejecuciones de prueba con casos clínicos reales utilizando marcas de tiempo de alta precisión mediante la API \\texttt{performance.now()} del entorno de ejecución del cliente y del servidor Node.js.
+Todas las mediciones son almacenadas de forma trazable en la base de datos MongoDB junto a los registros clínicos de la aplicación, garantizando la reproducibilidad metodológica y la integridad de la evidencia empírica para la tesis. Las pruebas se ejecutaron sobre un conjunto de $N = ${sampleSize}$ ejecuciones de prueba con casos clínicos sintéticos. Todas las duraciones se calculan como la diferencia entre dos lecturas del reloj monotónico de alta resolución \\texttt{performance.now()} tomadas en el mismo entorno de ejecución: en el navegador para las mediciones del cliente, y en el servidor Node.js (módulo \\texttt{perf\\_hooks}) para las mediciones del servidor. Al ser monotónico, este reloj no se ve afectado por ajustes del reloj del sistema (p.~ej. sincronización NTP), y como ninguna duración combina lecturas de equipos distintos, no se requiere sincronización de relojes entre cliente y servidor.
 
 \\subsection{Tiempos del proceso de triage}
 \\label{subsec:tiempos_triage}
 
-El tiempo total de respuesta del sistema desde la captación de datos clínicos hasta la confirmación visual en la interfaz para el personal médico se desglosa en cuatro fases secuenciales síncronas y una quinta fase asíncrona en segundo plano:
+Las métricas del proceso de triage se agrupan en las siguientes cinco fases. Las Fases 3 y 5 transcurren dentro del guardado del registro y, por tanto, están contenidas en el tiempo de la Fase 4:
 
 \\begin{enumerate}
-    \\item \\textbf{Fase 1 (Adquisición y Estabilización IoT BLE):} Evaluada en registros con hardware biométrico físico conectado (sensores BLE de pulsioximetría y tensión arterial). En pruebas de carga sintética de API se aísla esta fase ($t_{\\text{IoT}} = \\text{N/A}$) para evaluar únicamente la latencia pura de la infraestructura de software.
-    \\item \\textbf{Fase 2 (Inferencia IA - Gemini 3.6 Flash):} Tiempo de transporte HTTP y procesamiento del expediente clínico completo (motivo de consulta, signos vitales, escala Glasgow, criterios de choque y modificadores ESI) mediante la API del modelo de lenguaje.
-    \\item \\textbf{Fase 3 (Persistencia BD y Hashing SHA-256):} Inserción en MongoDB del registro híbrido y cálculo del digest SHA-256 determinístico del expediente médico.
-    \\item \\textbf{Fase 4 (Respuesta Total Medida en UI):} Tiempo total de ida y vuelta (Round-Trip Time) desde la solicitud del médico hasta el renderizado de la confirmación visual en la interfaz React, medido directamente con \\texttt{performance.now()}.
-    \\item \\textbf{Fase 5 (Anclaje en Blockchain en Segundo Plano):} Generación de firma ECDSA secp256k1 en el \\textit{Relayer} (custodial) y minado del bloque en la red Polygon Amoy.
+    \\item \\textbf{Fase 1 (Adquisición y Estabilización IoT BLE):} Evaluada en registros con hardware biométrico físico conectado (sensores BLE de pulsioximetría y temperatura). En pruebas de carga sintética de API se aísla esta fase ($t_{\\text{IoT}} = \\text{N/A}$) para evaluar únicamente la latencia pura de la infraestructura de software.
+    \\item \\textbf{Fase 2 (Inferencia IA - Gemini, modelo variable):} Medido en el servidor desde la recepción de la solicitud de análisis hasta obtener una respuesta JSON válida del modelo de lenguaje, procesando el expediente clínico completo (motivo de consulta, signos vitales, escala Glasgow, criterios de choque y modificadores ESI). Incluye todos los intentos de la cascada de modelos (también los fallidos) y excluye el tramo de red entre el cliente y el servidor.
+    \\item \\textbf{Fase 3 (Persistencia en MongoDB):} Medido en el servidor: inserción del registro híbrido en MongoDB. El cálculo del hash SHA-256 y la firma se realizan antes y no forman parte de esta fase.
+    \\item \\textbf{Fase 4 (Tiempo de respuesta al guardar):} Tiempo de ida y vuelta medido en el cliente con \\texttt{performance.now()} desde que el médico confirma el guardado hasta que el servidor responde con el registro ya anclado en Polygon Amoy y almacenado en MongoDB. Incluye la red cliente--servidor, la verificación on-chain de autorización del médico, el cálculo del hash, la firma, el anclaje en blockchain (Fase 5) y la persistencia (Fase 3). No incluye la inferencia de IA, que el médico ejecuta como una acción previa e independiente.
+    \\item \\textbf{Fase 5 (Anclaje en Blockchain):} Medido en el servidor: envío de la transacción por el \\textit{Relayer} (custodial) hasta obtener su hash, más la espera de una confirmación (inclusión en bloque) en la red Polygon Amoy, con sondeo del proveedor RPC cada 1 s. El servidor espera esta confirmación antes de responder, por lo que la fase es síncrona respecto al médico.
 \\end{enumerate}
 
 La Tabla~\\ref{tab:desglose_tiempos_triage} resume los resultados estadísticos obtenidos para la muestra de $N = ${sampleSize}$ mediciones válidas guardadas en la base de datos.
@@ -167,43 +272,24 @@ La Tabla~\\ref{tab:desglose_tiempos_triage} resume los resultados estadísticos 
 \\hline
 \\textbf{Fase del Proceso} & \\textbf{Mín. (s)} & \\textbf{Promedio (s)} & \\textbf{Máx. (s)} & \\textbf{Desv. Est. ($\\sigma$)} \\\\ \\hline
 1. Adquisición y Estabilización IoT (BLE) & ${iot.avg > 0 ? iot.min.toFixed(2) : 'N/A'} & ${iot.avg > 0 ? iot.avg.toFixed(2) : 'N/A (Req. BLE)'} & ${iot.avg > 0 ? iot.max.toFixed(2) : 'N/A'} & ${iot.avg > 0 && iot.stdDev !== undefined ? '$\\pm ' + iot.stdDev.toFixed(2) + '$' : 'N/A'} \\\\ \\hline
-2. Inferencia y análisis de IA (Gemini 3.6 Flash) & ${ai.min.toFixed(2)} & ${ai.avg.toFixed(2)} & ${ai.max.toFixed(2)} & $\\pm ${(ai.stdDev ?? 0).toFixed(2)}$ \\\\ \\hline
-3. Persistencia BD MongoDB y Hashing SHA-256 & ${db.min.toFixed(2)} & ${db.avg.toFixed(2)} & ${db.max.toFixed(2)} & $\\pm ${(db.stdDev ?? 0).toFixed(2)}$ \\\\ \\hline
-\\textbf{4. Respuesta Total a la UI (Medida)} & \\textbf{${ui.min.toFixed(2)}} & \\textbf{${ui.avg.toFixed(2)}} & \\textbf{${ui.max.toFixed(2)}} & $\\mathbf{\\pm ${(ui.stdDev ?? 0).toFixed(2)}}$ \\\\ \\hline
+2. Inferencia y análisis de IA (Gemini, modelo variable) & ${ai.min.toFixed(2)} & ${ai.avg.toFixed(2)} & ${ai.max.toFixed(2)} & $\\pm ${(ai.stdDev ?? 0).toFixed(2)}$ \\\\ \\hline
+3. Persistencia en MongoDB & ${db.min.toFixed(2)} & ${db.avg.toFixed(2)} & ${db.max.toFixed(2)} & $\\pm ${(db.stdDev ?? 0).toFixed(2)}$ \\\\ \\hline
+\\textbf{4. Tiempo de respuesta al guardar (medido)} & \\textbf{${ui.min.toFixed(2)}} & \\textbf{${ui.avg.toFixed(2)}} & \\textbf{${ui.max.toFixed(2)}} & $\\mathbf{\\pm ${(ui.stdDev ?? 0).toFixed(2)}}$ \\\\ \\hline
 5. Anclaje en Blockchain (Relayer/Polygon) & ${bc.min.toFixed(2)} & ${bc.avg.toFixed(2)} & ${bc.max.toFixed(2)} & $\\pm ${(bc.stdDev ?? 0).toFixed(2)}$ \\\\ \\hline
 \\end{tabular}
 \\end{table}
 
-El tiempo promedio de latencia interactiva experimentado directamente en la interfaz por el profesional de la salud (Fases 1 a 4) es de $\\mathbf{${ui.avg.toFixed(2)} \\text{ segundos}}$, ofreciendo una respuesta ágil apta para entornos de alta demanda hospitalaria.
+El tiempo promedio que el profesional de la salud espera al guardar un triage (Fase 4, que contiene las Fases 3 y 5) es de $\\mathbf{${ui.avg.toFixed(2)} \\text{ segundos}}$ (mínimo de $${ui.min.toFixed(2)} \\text{ s}$ y máximo de $${ui.max.toFixed(2)} \\text{ s}$).
 
 \\subsection{Latencia del módulo de Inteligencia Artificial}
 \\label{subsec:latencia_ia}
 
-El módulo de Inteligencia Artificial procesa el paquete clínico completo de datos (incluyendo la narrativa libre del médico, constantes vitales, puntaje Glasgow y modificadores del algoritmo ESI) mediante el modelo \\texttt{gemini-3.6-flash}. Para las $N = ${sampleSize}$ pruebas almacenadas en MongoDB, la latencia media observada en el servidor fue de $\\mathbf{${ai.avg.toFixed(2)} \\text{ segundos}}$ (mínimo de $${ai.min.toFixed(2)} \\text{ s}$ y máximo de $${ai.max.toFixed(2)} \\text{ s}$).
+El módulo de Inteligencia Artificial procesa el paquete clínico completo de datos (incluyendo la narrativa libre del médico, constantes vitales, puntaje Glasgow y modificadores del algoritmo ESI) mediante la API de Gemini, con reintento secuencial sobre los modelos \\texttt{gemini-3.5-flash-lite}, \\texttt{gemini-3.1-flash-lite} y \\texttt{gemini-3.6-flash} (límite de 6 s por intento; se registra el primero que responde). Para las $N = ${sampleSize}$ pruebas almacenadas en MongoDB, la latencia media observada en el servidor fue de $\\mathbf{${ai.avg.toFixed(2)} \\text{ segundos}}$ (mínimo de $${ai.min.toFixed(2)} \\text{ s}$ y máximo de $${ai.max.toFixed(2)} \\text{ s}$).
 
 \\subsection{Latencia de anclaje en Blockchain}
 \\label{subsec:latencia_blockchain}
 
-La arquitectura implementa un \\textit{Relayer} que firma las transacciones con clave privada en el servidor backend (firma custodial invisible). El médico no debe interactuar con extensiones de billeteras (e.g. MetaMask) ni esperar la confirmación de la cadena. El tiempo total de anclaje en Polygon registró un promedio de $\\mathbf{${bc.avg.toFixed(2)} \\text{ segundos}}$, desacoplando exitosamente la usabilidad clínica inmediata de los tiempos de minado distribuidos.`;
-  },
-
-  // Generate LaTeX Table code for Thesis
-  generateLatexTable(summary: MetricSummary[], sampleSize: number): string {
-    const uiRow = summary[3];
-    return `\\begin{table}[h!]
-\\centering
-\\caption{Desglose de tiempos de respuesta del proceso de triage almacenados en MongoDB ($N=${sampleSize}$).}
-\\label{tab:tiempos_triage}
-\\begin{tabular}{|l|c|c|c|}
-\\hline
-\\textbf{Fase del Proceso} & \\textbf{Tiempo Mín. (s)} & \\textbf{Tiempo Prom. (s)} & \\textbf{Tiempo Máx. (s)} \\\\ \\hline
-${summary[0].phase} & ${summary[0].avg > 0 ? summary[0].min.toFixed(2) : 'N/A'} & ${summary[0].avg > 0 ? summary[0].avg.toFixed(2) : 'N/A'} & ${summary[0].avg > 0 ? summary[0].max.toFixed(2) : 'N/A'} \\\\ \\hline
-${summary[1].phase} & ${summary[1].min.toFixed(2)} & ${summary[1].avg.toFixed(2)} & ${summary[1].max.toFixed(2)} \\\\ \\hline
-${summary[2].phase} & ${summary[2].min.toFixed(2)} & ${summary[2].avg.toFixed(2)} & ${summary[2].max.toFixed(2)} \\\\ \\hline
-\\textbf{4. Respuesta Total a la UI (Medido)} & \\textbf{${uiRow.min.toFixed(2)}} & \\textbf{${uiRow.avg.toFixed(2)}} & \\textbf{${uiRow.max.toFixed(2)}} \\\\ \\hline
-${summary[4].phase} & ${summary[4].min.toFixed(2)} & ${summary[4].avg.toFixed(2)} & ${summary[4].max.toFixed(2)} \\\\ \\hline
-\\end{tabular}
-\\end{table}`;
+La arquitectura implementa un \\textit{Relayer} que firma las transacciones con clave privada en el servidor backend (firma custodial invisible). El médico no debe interactuar con extensiones de billeteras (e.g. MetaMask); sin embargo, el servidor espera una confirmación de la transacción antes de responder, por lo que el tiempo de anclaje forma parte del tiempo de guardado percibido (Fase 4). Si la transacción no puede confirmarse, el registro no se guarda. El tiempo total de anclaje en Polygon (envío más una confirmación) registró un promedio de $\\mathbf{${bc.avg.toFixed(2)} \\text{ segundos}}$ (mínimo de $${bc.min.toFixed(2)} \\text{ s}$ y máximo de $${bc.max.toFixed(2)} \\text{ s}$).${cryptoSection}`;
   },
 
   // Run automated benchmark suite with N real executions against the backend endpoints
@@ -248,7 +334,7 @@ ${summary[4].phase} & ${summary[4].min.toFixed(2)} & ${summary[4].avg.toFixed(2)
     for (let i = 1; i <= sampleCount; i++) {
       const scenario = clinicalScenarios[(i - 1) % clinicalScenarios.length];
       
-      // Medición real del tiempo de ida y vuelta del cliente UI con performance.now() (Fase 4)
+      // Marca de inicio de la iteración (solo usada por el respaldo de t_ai sin _metrics)
       const t0_ui_roundtrip = performance.now();
 
       // Fase 1: En benchmark de API sin hardware físico, t_iot es null y BLE es false
@@ -277,7 +363,9 @@ ${summary[4].phase} & ${summary[4].min.toFixed(2)} & ${summary[4].avg.toFixed(2)
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            clinicalText: scenario.text,
+            // El servidor exige los dos campos de relato (mismos textos que mockPatient más abajo)
+            symptoms: scenario.text,
+            currentIllness: 'Evaluación experimental de rendimiento y almacenamiento persistente para tesis',
             patientInfo: { age: scenario.age, gender: scenario.gender, eps: 'SURA' },
             vitals: mockVitals,
             gcsTotal: scenario.gcs,
@@ -349,9 +437,11 @@ ${summary[4].phase} & ${summary[4].min.toFixed(2)} & ${summary[4].avg.toFixed(2)
         aiErrorStr += ` | DB Error: ${e.message}`;
       }
 
-      // 4. Tiempo Total Medido en UI (Real Client High-Resolution Timer)
+      // 4. Tiempo de respuesta al guardar (misma definición que TriageForm): desde el inicio del
+      // guardado (t0_db) hasta la respuesta del servidor con el registro anclado y guardado.
+      // No incluye la llamada a la IA, que en la UI real es una acción separada del médico.
       const t1_ui_roundtrip = performance.now();
-      const t_ui = Number(((t1_ui_roundtrip - t0_ui_roundtrip) / 1000).toFixed(2));
+      const t_ui = Number(((t1_ui_roundtrip - t0_db) / 1000).toFixed(2));
 
       // Determinar si es una medición 100% real y válida sin fallbacks
       const isRealMeasurement = aiSuccess && dbSuccess && t_ai > 0 && t_db_hash > 0 && t_blockchain > 0;
@@ -394,9 +484,5 @@ ${summary[4].phase} & ${summary[4].min.toFixed(2)} & ${summary[4].avg.toFixed(2)
 
     // Retornar logs guardados
     return this.getLogs();
-  },
-
-  getInitialSampleLogs(): TelemetryLog[] {
-    return [];
   }
 };

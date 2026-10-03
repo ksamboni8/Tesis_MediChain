@@ -1,0 +1,732 @@
+{
+  "startedAt": "2026-10-02T22:28:00.003Z",
+  "finishedAt": "2026-10-02T22:28:02.065Z",
+  "api": "http://localhost:3000/api",
+  "contract": "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A",
+  "adminWallet": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+  "baseline": {
+    "records": 72,
+    "anchoredHashes": 37,
+    "valid": 17
+  },
+  "summary": {
+    "attempted": 12,
+    "effective": 12,
+    "detected": 12,
+    "detectionRatePct": 100,
+    "controls": 5,
+    "falsePositives": []
+  },
+  "results": [
+    {
+      "recordId": "6abbcd151bb3e761c4b1b16f",
+      "patientName": "Carlos Alberto Gómez Restrepo",
+      "field": "finalEsiLevel",
+      "before": 1,
+      "after": 2,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "9a1eeb57af5322d83223805895f792b4fb7a39bf5222584e250c759656393ba0",
+      "originalPatientData": {
+        "id": "ec93010b-ac16-48ca-a973-2799b3dfabcb",
+        "cedula": "1020485934",
+        "name": "Carlos Alberto Gómez Restrepo",
+        "age": 62,
+        "gender": "M",
+        "eps": "SURA",
+        "symptoms": "Me duele el pecho y no puedo respirar",
+        "currentIllness": "Paciente masculino de 62 años con cuadro de 20 minutos de evolución de dolor torácico opresivo irradiado al brazo izquierdo y mandíbula, diaforesis profusa, náuseas y disnea en reposo. Antecedentes: hipertensión arterial, diabetes tipo 2, tabaquismo activo",
+        "vitals": {
+          "heartRate": 118,
+          "spo2": 88,
+          "temperature": 36.8,
+          "respiratoryRate": 28,
+          "bloodPressureSys": 88,
+          "bloodPressureDia": 60,
+          "bloodPressureMap": 69,
+          "painLevel": 8
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 4,
+          "motorResponse": 6,
+          "total": 14
+        },
+        "selectedSymptoms": [
+          "dolor torácico opresivo",
+          "diaforesis profusa",
+          "náuseas",
+          "disnea en reposo",
+          "irradiación a miembro superior izquierdo y mandíbula"
+        ],
+        "suggestedEsiLevel": 1,
+        "finalEsiLevel": 1,
+        "overrideReason": "Clasificado por IA: El paciente se clasifica en Triage I por presentar dificultad respiratoria severa objetivada con SpO2 de 88% (menor al 90%) y taquipnea (FR 28 rpm que, combinada con la hipoxemia, cumple criterios de riesgo vital inmediato). Adicionalmente, presenta un cuadro clínico de alta sospecha de Síndrome Coronario Agudo (dolor opresivo con irradiación típica y diaforesis) en contexto de inestabilidad hemodinámica (PAS 88 mmHg, taquicardia 118 lpm), lo que requiere maniobras de reanimación y estabilización inmediata.",
+        "aiLevel": 1,
+        "aiModelUsed": "gemini-3.1-flash-lite",
+        "triageTimestamp": 1790692627448,
+        "estimatedAttentionTime": 1790692627448,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 2,
+      "effective": true,
+      "hashAfter": "05b0a8108632014949c7871afb238f79dbad80e690dc543a46ea0d04b605c31b",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbd4b91bb3e761c4b1b17f",
+      "patientName": "Jorge Eliécer Mendoza Villegas",
+      "field": "vitals.spo2",
+      "before": 94,
+      "after": 84,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "57594ab6aa8898f6de6ecec54f77bb3b50feced04bcdc1ea61f970273ebbef6c",
+      "originalPatientData": {
+        "id": "1035c18a-8eba-48d7-8a85-ff10719d6a4a",
+        "cedula": "1047890123",
+        "name": "Jorge Eliécer Mendoza Villegas",
+        "age": 72,
+        "gender": "M",
+        "eps": "Nueva EPS",
+        "symptoms": "Accidente de tránsito",
+        "currentIllness": "Paciente masculino de 29 ingresa en contexto de politraumatismo de alta energía por accidente de transito moto vs camion al ingreso paciente con glasgow 13/15 que posteriormente desciende a 8 por lo que se realiza intubación orotraqueal, se observa marcada deformidad en muslo derecho con rotación externa de cadera exposición ósea de fémur derecho, con sangrado activo. Estigmas de trauma toracoabdominal derecho, no es posible evaluar EVA por estado neurológico. ",
+        "vitals": {
+          "heartRate": 128,
+          "spo2": 94,
+          "temperature": 36.2,
+          "respiratoryRate": 24,
+          "bloodPressureSys": 88,
+          "bloodPressureDia": 56,
+          "bloodPressureMap": 67,
+          "painLevel": 0
+        },
+        "glasgow": {
+          "eyeOpening": 2,
+          "verbalResponse": 2,
+          "motorResponse": 4,
+          "total": 8
+        },
+        "selectedSymptoms": [
+          "Politraumatismo de alta energía",
+          "Glasgow 8",
+          "Intubación orotraqueal",
+          "Deformidad en muslo derecho",
+          "Exposición ósea de fémur derecho",
+          "Sangrado activo",
+          "Estigmas de trauma toracoabdominal derecho",
+          "Modifier: Adulto mayor > 65 años"
+        ],
+        "suggestedEsiLevel": 1,
+        "finalEsiLevel": 1,
+        "overrideReason": "Clasificado por IA: El paciente presenta un puntaje de Glasgow de 8 y politraumatismo grave con sangrado activo y fractura expuesta de fémur, cumpliendo con los criterios estrictos del Nivel I de Triage (Reanimación) según la regla de Glasgow <= 8 y politraumatismo grave. La presencia de factores modificadores como edad avanzada no altera la clasificación ya que el nivel inicial es Triage I.",
+        "aiLevel": 1,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790694580540,
+        "estimatedAttentionTime": 1790694580540,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 84,
+      "effective": true,
+      "hashAfter": "7c058cb06c9a353effd3f0e63a709cf55c395f83072d7ad7f61adc837407e4f3",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbd5311bb3e761c4b1b187",
+      "patientName": "María Camila Giraldo Toro",
+      "field": "name",
+      "before": "María Camila Giraldo Toro",
+      "after": "María Camila Giraldo Toro X",
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "2a36fc577a5b4d83f382a0fe7cd21bf2cbe76b7d7f7fafc2a82fda70ea1a71cd",
+      "originalPatientData": {
+        "id": "d7a4b3d2-63d7-490c-baa5-de478b3d65fa",
+        "cedula": "1035987654",
+        "name": "María Camila Giraldo Toro",
+        "age": 48,
+        "gender": "F",
+        "eps": "Sanitas",
+        "symptoms": "Tengo un dolor de cabeza horrible y veo doble",
+        "currentIllness": "Paciente femenina de 48 años con cefalea de inicio súbito \"en trueno\" (10/10) de 45 minutos de evolución, rigidez nucal, fotofobia, náuseas y diplopía. Sin antecedentes relevantes. Niega traumatismo previo.",
+        "vitals": {
+          "heartRate": 94,
+          "spo2": 97,
+          "temperature": 37.2,
+          "respiratoryRate": 20,
+          "bloodPressureSys": 165,
+          "bloodPressureDia": 100,
+          "bloodPressureMap": 122,
+          "painLevel": 4
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 4,
+          "motorResponse": 6,
+          "total": 14
+        },
+        "selectedSymptoms": [
+          "cefalea de inicio súbito en trueno",
+          "rigidez nucal",
+          "fotofobia",
+          "náuseas",
+          "diplopía"
+        ],
+        "suggestedEsiLevel": 2,
+        "finalEsiLevel": 2,
+        "overrideReason": "Clasificado por IA: La paciente presenta una cefalea súbita e intensa tipo trueno asociada a rigidez nucal, fotofobia y diplopía, lo cual constituye una emergencia neurológica con sospecha de hemorragia subaracnoidea u otra patología intracraneal grave. Según el protocolo de Triage, la cefalea súbita e intensa tipo trueno clasifica directamente en Triage II (Emergencia).",
+        "aiLevel": 2,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790694701139,
+        "estimatedAttentionTime": 1790696501139,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": "María Camila Giraldo Toro X",
+      "effective": true,
+      "hashAfter": "1bf6450fe16ee146b95b36b605977ff835aa791e53e65256da04008ab293d9f0",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbd5ea1bb3e761c4b1b18f",
+      "patientName": "Andrés Felipe Villa Posada",
+      "field": "vitals.heartRate",
+      "before": 88,
+      "after": 108,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "ef1099c91782fbc75a4f6b035d00072ed6d26ab83224b560dae2f83bcf78db24",
+      "originalPatientData": {
+        "id": "932005e6-714c-4d07-bef4-b11d393fad3b",
+        "cedula": "1102456789",
+        "name": "Andrés Felipe Villa Posada",
+        "age": 71,
+        "gender": "M",
+        "eps": "Compensar",
+        "symptoms": "Está hablando raro y se le durmio el brazo",
+        "currentIllness": "Paciente masculino de 71 años ingresa con cuadro de evolución de 30 minutos consistente en hemiparesia en hemicuerpo derecho asociado a disartria y somnolencia, sin otros síntomas asociados. Paciente con antecedente de fibrilación auricular en manejo con DOACS. ",
+        "vitals": {
+          "heartRate": 88,
+          "spo2": 95,
+          "temperature": 36.6,
+          "respiratoryRate": 18,
+          "bloodPressureSys": 158,
+          "bloodPressureDia": 96,
+          "bloodPressureMap": 117,
+          "painLevel": 3
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 4,
+          "motorResponse": 6,
+          "total": 14
+        },
+        "selectedSymptoms": [
+          "hemiparesia en hemicuerpo derecho",
+          "disartria",
+          "somnolencia",
+          "hablando raro",
+          "se le durmio el brazo",
+          "Modifier: Adulto mayor > 65 años"
+        ],
+        "suggestedEsiLevel": 1,
+        "finalEsiLevel": 1,
+        "overrideReason": "Clasificado por IA: El paciente presenta un déficit neurológico focal agudo grave (hemiparesia derecha y disartria) con evolución de 30 minutos y somnolencia, lo cual califica directamente para TRIAGE I (Reanimación) según la regla 1 del protocolo, debido al riesgo vital inminente por sospecha de evento cerebrovascular agudo. El Glasgow es de 14 y al estar en Triage I, los factores modificadores no alteran la clasificación final.",
+        "aiLevel": 1,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790694885826,
+        "estimatedAttentionTime": 1790694885826,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 108,
+      "effective": true,
+      "hashAfter": "193ad32eb6edc93b803b4dabb106bff9bb4aed061deccf7c3c1c852c1802aa38",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbd6a51bb3e761c4b1b197",
+      "patientName": "Sofía Valentina Ortega Ruiz",
+      "field": "suggestedEsiLevel",
+      "before": 3,
+      "after": 4,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "6871be4638863c969dcf2dbe3e48513a1c12abdd9d445c854d55f9fb04081aee",
+      "originalPatientData": {
+        "id": "36a6e67d-1a53-45ca-89b3-d2ec973a87d3",
+        "cedula": "1098765432",
+        "name": "Sofía Valentina Ortega Ruiz",
+        "age": 34,
+        "gender": "F",
+        "eps": "Salud Total",
+        "symptoms": "Tengo fiebre alta y me duele mucho al orinar",
+        "currentIllness": "Paciente femenina de 34 años con 2 días de disuria intensa, fiebre de 38.8 °C, dolor en fosa renal izquierda y escalofríos. Refiere que los síntomas urinarios comenzaron 5 días atrás sin consultar. Sin antecedentes relevantes. ",
+        "vitals": {
+          "heartRate": 102,
+          "spo2": 98,
+          "temperature": 38.8,
+          "respiratoryRate": 20,
+          "bloodPressureSys": 118,
+          "bloodPressureDia": 76,
+          "bloodPressureMap": 90,
+          "painLevel": 3
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "Fiebre alta (38.8 °C)",
+          "Disuria intensa",
+          "Dolor en fosa renal izquierda",
+          "Escalofríos"
+        ],
+        "suggestedEsiLevel": 3,
+        "finalEsiLevel": 3,
+        "overrideReason": "Clasificado por IA: El paciente presenta un cuadro clínico compatible con pielonefritis aguda (fiebre, dolor en fosa renal y síntomas urinarios altos). Hemodinámicamente se encuentra estable (PA 118/76 mmHg, FC 102 lpm, SpO2 98%, GCS 15). Según la escala de Triage y los protocolos colombianos (Resolución 5596 de 2015), un cuadro infeccioso agudo que requiere múltiples recursos diagnósticos y terapéuticos (exámenes de laboratorio, imágenes o fluidoterapia/antibioticoterapia intravenosa) pero que no presenta datos de shock o inestabilidad hemodinámica corresponde a un Triage III (Urgencia). No aplican factores modificadores.",
+        "aiLevel": 3,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790695073748,
+        "estimatedAttentionTime": 1790705873748,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 4,
+      "effective": true,
+      "hashAfter": "794308e679c62898e0af2afcd276cd2924836fa27a487f029e4fc371f9ed1a7c",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbd73a1bb3e761c4b1b1a3",
+      "patientName": "Andrés Felipe Villa Posada",
+      "field": "symptoms",
+      "before": "Me siento mal y tengo mucho vomito y diarrea",
+      "after": "Me siento mal y tengo mucho vomito y diarrea.",
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "1f8eb7cfdf01a811ef06898671851f397c59191e64fe2ecc36b5ced515abf8bc",
+      "originalPatientData": {
+        "id": "86ab5dd9-001a-44c5-b1ee-38f5aae6bd0f",
+        "cedula": "1102456789",
+        "name": "Andrés Felipe Villa Posada",
+        "age": 38,
+        "gender": "M",
+        "eps": "Compensar",
+        "symptoms": "Me siento mal y tengo mucho vomito y diarrea",
+        "currentIllness": "Paciente masculino de 38 años, con cuadro de 3 días de evolución consistente en múltiples episodios eméticos (8 al día) y diarreicos acuosos sin sangre y sin moco (10 al día) asociado a dolor abdominal tipo cólico e hiporexia. Al examen físico palidez generalizada, mucosas secas y pálidas , signo del pliegue positivo, sin otras alteraciones.",
+        "vitals": {
+          "heartRate": 97,
+          "spo2": 97,
+          "temperature": 37.4,
+          "respiratoryRate": 18,
+          "bloodPressureSys": 104,
+          "bloodPressureDia": 68,
+          "bloodPressureMap": 80,
+          "painLevel": 6
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "vómito persistente",
+          "diarrea con signos de deshidratación",
+          "dolor abdominal tipo cólico",
+          "hiporexia",
+          "palidez generalizada",
+          "mucosas secas y pálidas",
+          "signo del pliegue positivo"
+        ],
+        "suggestedEsiLevel": 3,
+        "finalEsiLevel": 3,
+        "overrideReason": "Clasificado por IA: Paciente masculino de 38 años que presenta cuadro clínico de gastroenteritis con múltiples episodios eméticos y diarreicos, acompañado de signos objetivos de deshidratación moderada (mucosas secas, signo del pliegue positivo, palidez). Hemodinámicamente estable con FC de 97 lpm, PA 104/68 mmHg, SpO2 97% y Glasgow 15. Según el protocolo, la diarrea con deshidratación moderada y el vómito persistente clasifican como Triage III (Urgencia que requiere múltiples recursos pero estable). No presenta factores modificadores activos.",
+        "aiLevel": 3,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790695223450,
+        "estimatedAttentionTime": 1790706023450,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": "Me siento mal y tengo mucho vomito y diarrea.",
+      "effective": true,
+      "hashAfter": "b4b7e7d77f4a10019a03c18e75772f1808d06585f8a9c242fa1f48e7ef4e9d93",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbe0d11bb3e761c4b1b1af",
+      "patientName": "laura Ortega Ruiz",
+      "field": "glasgow.motorResponse",
+      "before": 6,
+      "after": 5,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "b96a23078ceeed132b80291a7e2e3fd37df44e6682267d8c8bab73d4834cf9fd",
+      "originalPatientData": {
+        "id": "5941e378-49cd-4676-8917-cdc6168663e3",
+        "cedula": "1098765432",
+        "name": "laura Ortega Ruiz",
+        "age": 9,
+        "gender": "F",
+        "eps": "Salud Total",
+        "symptoms": "Tengo mucho dolor de muela desde ayer",
+        "currentIllness": "Paciente femenina de 27 años con dolor dental de inicio espontáneo hace 18 horas, localizado en tercer molar inferior derecho, intensidad 6/10. Refiere leve inflamación submandibular ipsilateral. Afebril. Sin dificultad para respirar ni deglutir",
+        "vitals": {
+          "heartRate": 80,
+          "spo2": 99,
+          "temperature": 37,
+          "respiratoryRate": 15,
+          "bloodPressureSys": 116,
+          "bloodPressureDia": 74,
+          "bloodPressureMap": 88,
+          "painLevel": 5
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "odontalgia",
+          "inflamación submandibular"
+        ],
+        "suggestedEsiLevel": 4,
+        "finalEsiLevel": 4,
+        "overrideReason": "Clasificado por IA: Paciente femenina con cuadro clínico de dolor dental (odontalgia) leve a moderado de 18 horas de evolución, asociado a inflamación submandibular ipsilateral leve, sin signos de dificultad respiratoria, sin disfagia y afebril. Signos vitales estables y dentro de parámetros normales. Corresponde a una condición subaguda que requiere un recurso simple, clasificándose en Triage IV según el protocolo de urgencias. Los factores modificadores están ausentes.",
+        "aiLevel": 4,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790697676086,
+        "estimatedAttentionTime": 1790784076086,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 5,
+      "effective": true,
+      "hashAfter": "0ad93e9b562f510491a98ac268d059d5aa79825c1c96023e7a1ffb5ca8a04c24",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbe1601bb3e761c4b1b1bb",
+      "patientName": "Felipe Claros",
+      "field": "selectedSymptoms",
+      "before": [
+        "tos",
+        "rinorrea hialina"
+      ],
+      "after": [
+        "tos",
+        "rinorrea hialina",
+        "Modifier: Inyectado"
+      ],
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "da4b5641ec47996013babfe882675169a23005a0e561be69886d3879bd5da917",
+      "originalPatientData": {
+        "id": "05bddc30-704b-494c-bc9b-8f1cebff2a46",
+        "cedula": "1102456789",
+        "name": "Felipe Claros",
+        "age": 34,
+        "gender": "M",
+        "eps": "Compensar",
+        "symptoms": "Tengo tos",
+        "currentIllness": "Paciente con cuadro clinico  de 3 das de evolucion, consistente en tos, rinorrea hialina, niega dolor toracico o disnea , sin otros sintomas asociados",
+        "vitals": {
+          "heartRate": 78,
+          "spo2": 98,
+          "temperature": 36.5,
+          "respiratoryRate": 16,
+          "bloodPressureSys": 122,
+          "bloodPressureDia": 78,
+          "bloodPressureMap": 93,
+          "painLevel": 0
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "tos",
+          "rinorrea hialina"
+        ],
+        "suggestedEsiLevel": 4,
+        "finalEsiLevel": 4,
+        "overrideReason": "Clasificado por IA: Paciente adulto joven de 34 años con cuadro clínico de tres días de evolución consistente en tos y rinorrea hialina, sin dificultad respiratoria (SpO2 98%, FR 16 rpm), hemodinámicamente estable y sin signos de alarma ni disnea. Corresponde a un cuadro de infección respiratoria leve o resfriado común, catalogado como Triage IV según el protocolo. No presenta factores modificadores.",
+        "aiLevel": 4,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790697821785,
+        "estimatedAttentionTime": 1790784221785,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": [
+        "tos",
+        "rinorrea hialina",
+        "Modifier: Inyectado"
+      ],
+      "effective": true,
+      "hashAfter": "2c9d0f993500fb489776bbf1c1815d65be18310c530172823a07fd363362f113",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbe1cf1bb3e761c4b1b1c3",
+      "patientName": "andres Ladino",
+      "field": "age",
+      "before": 31,
+      "after": 32,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "57d6dbdc7cd56244cb292bc97838cfbe060079584b338740ba9ca157708d21ef",
+      "originalPatientData": {
+        "id": "e1629db5-321a-4c82-8e01-78cb99624cfd",
+        "cedula": "1035987654",
+        "name": "andres Ladino",
+        "age": 31,
+        "gender": "F",
+        "eps": "Sanitas",
+        "symptoms": "Tengo tos y mocos desde hace tres días",
+        "currentIllness": "Paciente masculino de 31 años con cuadro clínico de 3 días de evolución consistente en tos seca, rinorrea hialina y congestión nasal. Niega fiebre, disnea o dolor torácico. Sin antecedentes de importancia",
+        "vitals": {
+          "heartRate": 74,
+          "spo2": 99,
+          "temperature": 36.7,
+          "respiratoryRate": 15,
+          "bloodPressureSys": 118,
+          "bloodPressureDia": 76,
+          "bloodPressureMap": 90,
+          "painLevel": 0
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "Tos",
+          "Mocos",
+          "Tos seca",
+          "Rinorrea hialina",
+          "Congestión nasal"
+        ],
+        "suggestedEsiLevel": 4,
+        "finalEsiLevel": 4,
+        "overrideReason": "Clasificado por IA: Paciente masculino de 31 años con cuadro clínico leve de 3 días de evolución consistente en tos seca, rinorrea hialina y congestión nasal, sin signos de dificultad respiratoria, fiebre ni alteraciones hemodinámicas. Signos vitales dentro de la normalidad (SpO2 99%, FC 74, FR 15, PAS 118, GCS 15). Corresponde a una infección respiratoria leve o resfriado común, clasificado como Triage IV según el protocolo de la Resolución 5596 de 2015. No presenta factores modificadores que alteren el nivel.",
+        "aiLevel": 4,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790697931468,
+        "estimatedAttentionTime": 1790784331468,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 32,
+      "effective": true,
+      "hashAfter": "12d9d6c880f76c7fa6df95379d10c273bc889de9e0d369ca64aa2b05fb47bead",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbe25c1bb3e761c4b1b1cb",
+      "patientName": "isabela Fernandez",
+      "field": "cedula",
+      "before": "1035987654",
+      "after": "1035987655",
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "88f607bdd40a973222b174e927e903a36c735452291351608c3a5ec4baec924e",
+      "originalPatientData": {
+        "id": "c0abeff2-d566-420a-9472-2d374af2cd85",
+        "cedula": "1035987654",
+        "name": "isabela Fernandez",
+        "age": 55,
+        "gender": "F",
+        "eps": "Sanitas",
+        "symptoms": "Necesito que me renueven una fórmula médica",
+        "currentIllness": "Paciente femenina de 55 años que acude a urgencias solicitando renovación de medicamento antihipertensivo (amlodipino) que se le agotó hace 2 días. Paciente en adecuadas condiciones generales, niega dolor torácico, niega cefalea, niega dificultad respiratoria, niega alteraciones visuales.",
+        "vitals": {
+          "heartRate": 64.5,
+          "spo2": 99,
+          "temperature": 35.05,
+          "respiratoryRate": 14,
+          "bloodPressureSys": 138,
+          "bloodPressureDia": 86,
+          "bloodPressureMap": 103,
+          "painLevel": 0
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "Solicitud de renovación de fórmula médica",
+          "Agotamiento de medicamento antihipertensivo (amlodipino)"
+        ],
+        "suggestedEsiLevel": 5,
+        "finalEsiLevel": 5,
+        "overrideReason": "Clasificado por IA: Paciente femenina de 55 años que acude a urgencias exclusivamente para la renovación de su medicamento antihipertensivo (amlodipino) que se le agotó hace 2 días. Se encuentra en adecuadas condiciones generales, con signos vitales dentro de la normalidad (PA 138/86 mmHg, FC 64.5 lpm, FR 14 rpm, SpO2 99%, T 35.05 °C, GCS 15) y niega cualquier síntoma agudo o de alarma (niega dolor torácico, cefalea, disnea o alteraciones visuales). Según la Resolución 5596 de 2015 y los criterios ESI, los problemas administrativos, controles o síntomas crónicos sin urgencia corresponden a un Triage V. Los factores modificadores no aplican, ya que la paciente tiene 55 años y no presenta condiciones de vulnerabilidad adicionales especificadas en el protocolo.",
+        "aiLevel": 5,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790698072424,
+        "estimatedAttentionTime": 1790957272424,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": "1035987655",
+      "effective": true,
+      "hashAfter": "dc708b6c3c954874ce85cbf1d6c986315dbe0cb66a034200381ccc699ba7270c",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbeafb1bb3e761c4b1b1d3",
+      "patientName": "valentina agredo",
+      "field": "doctorId",
+      "before": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+      "after": "0x000000000000000000000000000000000000dEaD",
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "76f04d2ee8c66803f71369041fe017466f6202e9f738b8ff1f35b6ac41f02367",
+      "originalPatientData": {
+        "id": "1d4f1392-4691-485c-a7d3-8ed000872048",
+        "cedula": "1035987654",
+        "name": "valentina agredo",
+        "age": 28,
+        "gender": "F",
+        "eps": "Sanitas",
+        "symptoms": "Me duele mucho la garganta desde hace 3 días",
+        "currentIllness": "Paciente femenina de 26 años con odinofagia de 3 días de evolución, sin fiebre, sin dificultad respiratoria, sin disfagia. Refiere congestión nasal leve asociada. Sin antecedentes relevantes.",
+        "vitals": {
+          "heartRate": 78,
+          "spo2": 99,
+          "temperature": 36.5,
+          "respiratoryRate": 16,
+          "bloodPressureSys": 112,
+          "bloodPressureDia": 70,
+          "bloodPressureMap": 84,
+          "painLevel": 0
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "Odinofagia",
+          "Congestión nasal"
+        ],
+        "suggestedEsiLevel": 4,
+        "finalEsiLevel": 4,
+        "overrideReason": "Clasificado por IA: El paciente presenta un cuadro clínico leve caracterizado por odinofagia de 3 días de evolución asociada a congestión nasal leve, sin fiebre, dificultad respiratoria ni signos de alarma. Los signos vitales se encuentran totalmente estables y dentro de parámetros normales (FC 78, FR 16, PA 112/70, SpO2 99%, T 36.5°C, Glasgow 15). Según el protocolo de clasificación, este cuadro corresponde a una infección respiratoria leve o dolor de garganta menor, clasificándose en Triage IV. No se identifican factores modificadores que alteren la prioridad.",
+        "aiLevel": 4,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790700278854,
+        "estimatedAttentionTime": 1790786678854,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": "0x000000000000000000000000000000000000dEaD",
+      "effective": true,
+      "hashAfter": "e7f4963f71f64f4f15e455b1fd920d23af99b5852cb6c99bd131b83db383db4c",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    },
+    {
+      "recordId": "6abbeb671bb3e761c4b1b1db",
+      "patientName": "valentina rios",
+      "field": "triageTimestamp",
+      "before": 1790700388550,
+      "after": 1790700448550,
+      "httpStatus": 200,
+      "httpResponse": {
+        "success": true,
+        "message": "Data injection successful (Integrity Compromised)"
+      },
+      "hashBefore": "2bb208b0005a7fb09663ebddc3f395cdeb55afae98685791abb95f9f94ab24f2",
+      "originalPatientData": {
+        "id": "bbfb9f90-95a5-40fa-a6a9-d1328a463cbc",
+        "cedula": "1098765432",
+        "name": "valentina rios",
+        "age": 24,
+        "gender": "F",
+        "eps": "Salud Total",
+        "symptoms": "Tengo sangrado vaginal y estoy embarazada",
+        "currentIllness": "Paciente femenina de 24 años, gestante de 32 semanas, con sangrado vaginal leve de 2 horas de evolución, sin dolor abdominal intenso, sin contracciones. Signos vitales estables.",
+        "vitals": {
+          "heartRate": 88,
+          "spo2": 98,
+          "temperature": 36.7,
+          "respiratoryRate": 18,
+          "bloodPressureSys": 115,
+          "bloodPressureDia": 75,
+          "bloodPressureMap": 88,
+          "painLevel": 0
+        },
+        "glasgow": {
+          "eyeOpening": 4,
+          "verbalResponse": 5,
+          "motorResponse": 6,
+          "total": 15
+        },
+        "selectedSymptoms": [
+          "sangrado vaginal",
+          "embarazo de 32 semanas",
+          "Modifier: Gestante"
+        ],
+        "suggestedEsiLevel": 2,
+        "finalEsiLevel": 2,
+        "overrideReason": "Clasificado por IA: La paciente presenta un embarazo de 32 semanas con sangrado vaginal, lo cual constituye de forma explícita un criterio de Triage II (Emergencia) según el protocolo establecido para sangrado vaginal durante el embarazo. Aunque los signos vitales se encuentran estables, la condición clínica requiere atención prioritaria.",
+        "aiLevel": 2,
+        "aiModelUsed": "gemini-3.5-flash-lite",
+        "triageTimestamp": 1790700388550,
+        "estimatedAttentionTime": 1790702188550,
+        "doctorId": "0x5ED24436721Ed75651F625fD3031B849b26dCd80"
+      },
+      "storedValue": 1790700448550,
+      "effective": true,
+      "hashAfter": "93a8ffc0a6e06f3cf03b3f372bfa4a392070f1ab813ac41d1979cd81095762a1",
+      "statusAfter": "ALTERADO",
+      "detected": true
+    }
+  ]
+}

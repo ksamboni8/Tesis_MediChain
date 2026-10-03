@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { dbService } from '../services/databaseService';
-import { UserPlus, Users, Trash2, Clock, User, Fingerprint, Calendar } from 'lucide-react';
+import { UserPlus, Users, Trash2, Clock, User, Fingerprint, Calendar, AlertTriangle, RefreshCw } from 'lucide-react';
 import { PendingPatient } from '../types';
 import { format } from 'date-fns';
 
@@ -12,6 +12,7 @@ export const AdmissionOffice: React.FC = () => {
   const [eps, setEps] = useState('');
   const [pending, setPending] = useState<PendingPatient[]>([]);
   const [loading, setLoading] = useState(false);
+  const [dbError, setDbError] = useState<string | null>(null);
 
   useEffect(() => {
     loadPending();
@@ -19,10 +20,12 @@ export const AdmissionOffice: React.FC = () => {
 
   const loadPending = async () => {
     try {
+      setDbError(null);
       const data = await dbService.getPendingPatients();
       setPending(data);
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
+      setDbError(error.message || "Error al conectar con MongoDB Local");
     }
   };
 
@@ -44,8 +47,8 @@ export const AdmissionOffice: React.FC = () => {
       setAge('');
       setEps('');
       loadPending();
-    } catch (error) {
-      alert("Error al registrar paciente");
+    } catch (error: any) {
+      alert(`Error al registrar paciente: ${error.message || error}`);
     } finally {
       setLoading(false);
     }
@@ -56,13 +59,30 @@ export const AdmissionOffice: React.FC = () => {
     try {
       await dbService.removePendingPatient(id);
       loadPending();
-    } catch (error) {
-      alert("Error al eliminar");
+    } catch (error: any) {
+      alert(`Error al eliminar: ${error.message || error}`);
     }
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+    <div className="space-y-6">
+      {dbError && (
+        <div className="bg-red-50 border border-red-200 text-red-800 p-4 rounded-xl flex items-start gap-3 shadow-sm">
+          <AlertTriangle className="w-5 h-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1 text-sm">
+            <p className="font-semibold">Error de Conexión a MongoDB Local</p>
+            <p className="text-red-700 mt-0.5">{dbError}</p>
+          </div>
+          <button
+            onClick={loadPending}
+            className="px-3 py-1 bg-red-600 text-white rounded-lg text-xs font-semibold hover:bg-red-700 transition-colors flex items-center gap-1.5"
+          >
+            <RefreshCw className="w-3.5 h-3.5" />
+            <span>Reintentar</span>
+          </button>
+        </div>
+      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Formulario de Registro */}
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
         <div className="flex items-center gap-3 mb-6">
@@ -206,5 +226,6 @@ export const AdmissionOffice: React.FC = () => {
         </div>
       </div>
     </div>
+  </div>
   );
 };

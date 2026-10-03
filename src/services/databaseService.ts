@@ -1,6 +1,5 @@
 
 import type { HybridRecord, PatientData } from '../types';
-import { generateHash } from './cryptoService';
 
 /**
  * DATABASE SERVICE (REAL API IMPLEMENTATION)
@@ -10,43 +9,6 @@ import { generateHash } from './cryptoService';
 const API_URL = '/api';
 
 export const dbService = {
-  // POST: Send data to the Real MongoDB via Backend
-  async insertRecord(patientData: PatientData, doctorWallet: string, txHash: string): Promise<HybridRecord> {
-    
-    // Generate the hash locally to send to DB for reference
-    const dataHash = await generateHash(patientData);
-    
-    // In a real scenario, the signature comes from the wallet. 
-    // Here we generate a placeholder or use the wallet signature if available.
-    const signature = `SIG_${doctorWallet}_${Date.now()}`;
-
-    const payload = {
-      patientData,
-      blockchainHash: dataHash,
-      blockchainSignature: signature,
-      transactionHash: txHash // Save the Polygon Receipt
-    };
-
-    try {
-      const response = await fetch(`${API_URL}/records`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-
-      if (!response.ok) {
-        const errData = await response.json().catch(() => ({}));
-        throw new Error(errData.details || errData.error || 'Failed to save to MongoDB');
-      }
-      
-      const savedRecord = await response.json();
-      return savedRecord;
-    } catch (error) {
-      console.error("DB Error:", error);
-      throw error;
-    }
-  },
-
   // POST: Send data to the backend for automatic relayer signing and Polygon Amoy registration
   async insertRecordInvisible(patientData: PatientData, doctorWallet: string): Promise<HybridRecord> {
     try {
@@ -73,12 +35,15 @@ export const dbService = {
   async getAllRecords(): Promise<HybridRecord[]> {
     try {
       const response = await fetch(`${API_URL}/records`);
-      if (!response.ok) throw new Error('Failed to fetch records');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || errData.details || errData.error || 'Failed to fetch records');
+      }
       const data = await response.json();
       return data;
     } catch (error) {
       console.error("DB Error:", error);
-      return [];
+      throw error;
     }
   },
 
@@ -91,7 +56,10 @@ export const dbService = {
         body: JSON.stringify({ attentionTimestamp: Date.now() })
       });
 
-      if (!response.ok) throw new Error('Failed to mark as attended');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || errData.details || errData.error || 'Failed to mark as attended');
+      }
       return await response.json();
     } catch (error) {
       console.error("DB Error:", error);
@@ -100,15 +68,18 @@ export const dbService = {
   },
 
   // PATCH: Execute the Hack via API
-  async directHackUpdate(mongoId: string, newData: Partial<PatientData>): Promise<void> {
+  async directHackUpdate(mongoId: string, newData: Partial<PatientData>, adminWallet: string): Promise<void> {
     try {
       const response = await fetch(`${API_URL}/hack/${mongoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(newData)
+        body: JSON.stringify({ ...newData, adminWallet })
       });
 
-      if (!response.ok) throw new Error('Hack injection failed');
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.message || errData.details || errData.error || 'Hack injection failed');
+      }
     } catch (error) {
       console.error("Hack Error:", error);
       throw error;
@@ -122,13 +93,19 @@ export const dbService = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
     });
-    if (!response.ok) throw new Error('Failed to add pending patient');
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.message || errData.details || errData.error || 'Failed to add pending patient');
+    }
     return await response.json();
   },
 
   async getPendingPatients() {
     const response = await fetch(`${API_URL}/pending-patients`);
-    if (!response.ok) throw new Error('Failed to fetch waiting list');
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.message || errData.details || errData.error || 'Failed to fetch waiting list');
+    }
     return await response.json();
   },
 
@@ -136,6 +113,9 @@ export const dbService = {
     const response = await fetch(`${API_URL}/pending-patients/${id}`, {
       method: 'DELETE'
     });
-    if (!response.ok) throw new Error('Failed to remove patient from list');
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({}));
+      throw new Error(errData.message || errData.details || errData.error || 'Failed to remove patient from list');
+    }
   }
 };

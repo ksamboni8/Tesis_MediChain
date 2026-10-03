@@ -176,8 +176,10 @@ export interface PatientData {
   checklist: ESIChecklist;
   selectedSymptoms?: string[]; // NEW: For the modern UI
   
-  suggestedEsiLevel: ESILevel; // Calculated by Algo
+  suggestedEsiLevel: ESILevel; // Nivel mostrado al médico como sugerencia (el de la IA si se ejecutó, si no el del algoritmo)
   finalEsiLevel: ESILevel; // Selected by Doctor
+  aiLevel: ESILevel | null; // Nivel devuelto por la IA en este triage; null si no se ejecutó
+  aiModelUsed: string | null; // Modelo Gemini que respondió (_metrics.modelUsed); null si no aplica. Fuera del hash
   overrideReason?: string; // Required if Suggested != Final
   
   triageTimestamp: number;
@@ -218,10 +220,19 @@ export interface TelemetryLog {
   patientName: string;
   t_iot: number | null;   // Estabilización / Adquisición IoT BLE (s), null si no se conectó hardware físico
   isBleConnected?: boolean; // Indica si se utilizó hardware BLE físico
-  t_ai: number;          // Inferencia IA Gemini (s)
+  t_ai: number | null;   // Inferencia IA Gemini (s), null si no hubo métrica real
   t_db_hash: number;     // Persistencia MongoDB & Hash SHA-256 (s)
-  t_ui: number;          // Tiempo de Respuesta Total medido en UI (s)
-  t_blockchain: number;  // Anclaje en Blockchain / Relayer (s)
+  t_ui: number | null;   // Tiempo de respuesta al guardar (s): clic Guardar → respuesta del servidor con registro anclado y guardado
+  t_blockchain: number | null; // Anclaje en Blockchain / Relayer (s), null si no hubo métrica real
+  t_hash_ms?: number | null;  // Cálculo SHA-256 en el servidor (ms); ausente/null en registros previos
+  t_firma_ms?: number | null; // Firma ECDSA del relayer en el servidor (ms); ausente/null en registros previos
+  // Costos por triage (null = sin dato real; ausente en registros previos). No entran en el hash
+  gas_used?: number | null;                  // receipt.gasUsed
+  effective_gas_price_wei?: string | null;   // receipt.effectiveGasPrice en wei (texto decimal exacto)
+  cost_pol?: string | null;                  // gasUsed × effectiveGasPrice en POL (texto decimal exacto)
+  ai_tokens_in?: number | null;              // Gemini usageMetadata.promptTokenCount
+  ai_tokens_out?: number | null;             // Gemini candidatesTokenCount + thoughtsTokenCount
+  ai_models_tried?: number | null;           // Modelos probados en la cascada hasta obtener respuesta
   isRealMeasurement?: boolean; // Indica si la medición fue exitosa sin fallbacks de error
   errorReason?: string;  // Razón de descarte si es medición no válida
 }
@@ -234,3 +245,14 @@ export interface MetricSummary {
   stdDev?: number;
 }
 
+
+// Estadística de una métrica en milisegundos con el tamaño de muestra (registros con valor no nulo)
+export interface MsMetricSummary extends MetricSummary {
+  n: number;
+}
+
+// Estadística de un costo por triage, sin redondear (el costo en POL es del orden de 1e-3)
+export interface CostMetricSummary extends MsMetricSummary {
+  unit: string;
+  decimals: number; // Decimales con que se muestra
+}

@@ -1,11 +1,15 @@
 import React, { useEffect, useState } from 'react';
-import { verifyDataIntegrity, generateHash } from '../services/cryptoService';
+import { generateHash } from '../services/cryptoService';
 import { dbService } from '../services/databaseService';
 import { web3Service } from '../services/web3Service';
 import { ESIBadge } from '../components/Badge';
 import { CheckCircle, AlertTriangle, FileSearch, Clock, Hash, FileText, ChevronDown, ChevronUp, RefreshCw, Scale, Edit2, Play, GitCommit, ExternalLink, Info, Activity, Thermometer, User, Shield, Lock, EyeOff, ShieldCheck, Search, Calendar, Download } from 'lucide-react';
 import { format, differenceInMinutes } from 'date-fns';
 import { HybridRecord, UserRole } from '../types';
+
+// VALIDO: el hash recalculado está anclado en el contrato. ALTERADO: la cadena se leyó completa y el
+// hash no está. NO_VERIFICADO: no se pudo leer la cadena, así que no se puede afirmar ninguna de las dos.
+type IntegrityStatus = 'VALIDO' | 'ALTERADO' | 'NO_VERIFICADO';
 
 interface AuditListProps {
   userRole?: UserRole; // To decide if we show Edit buttons
@@ -16,12 +20,14 @@ interface AuditListProps {
 export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord, onReEvaluateRecord }) => {
   const [mongoRecords, setMongoRecords] = useState<HybridRecord[]>([]);
   const [chainRecords, setChainRecords] = useState<any[]>([]);
-  const [validationMap, setValidationMap] = useState<Record<string, boolean>>({});
+  const [validationMap, setValidationMap] = useState<Record<string, IntegrityStatus>>({});
+  const [chainError, setChainError] = useState<string | null>(null);
   const [calculatedHashMap, setCalculatedHashMap] = useState<Record<string, string>>({}); // NEW: Store actual calculated hashes
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [dateFilter, setDateFilter] = useState('');
+  const [dbError, setDbError] = useState<string | null>(null);
 
   const isDoctor = userRole === UserRole.DOCTOR;
 
@@ -32,41 +38,43 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
 
   const loadData = async () => {
     setLoading(true);
+    setDbError(null);
     try {
       // 1. Get Off-chain Data (Real MongoDB via API)
       const dbData = await dbService.getAllRecords(); // Await added here
       setMongoRecords(dbData);
 
-      // 2. Get On-chain Data (Real Blockchain)
-      const blockchainData = await web3Service.getLatestRecords(50);
-      setChainRecords(blockchainData);
+      // 2. Todos los hashes anclados en el contrato (no solo los últimos N). Si la cadena no se
+      // puede consultar por completo, ningún registro se marca como válido: queda "no verificado".
+      let anchoredHashes: Set<string> | null = null;
+      try {
+        const blockchainData = await web3Service.getAllAnchoredRecords();
+        setChainRecords(blockchainData);
+        anchoredHashes = new Set(blockchainData.map(c => String(c.dataHash).toLowerCase()));
+        setChainError(null);
+      } catch (chainErr: any) {
+        console.error("No se pudo leer la blockchain para verificar integridad:", chainErr);
+        setChainRecords([]);
+        setChainError(chainErr?.message || 'No se pudo consultar el contrato en Polygon Amoy.');
+      }
 
-      // 3. Cross-Reference and Validate
-      const vMap: Record<string, boolean> = {};
+      // 3. Hash recalculado con los datos que acaban de llegar de MongoDB, comparado SOLO contra la
+      // cadena: nunca contra el blockchainHash guardado en el mismo documento (que podría estar alterado).
+      const vMap: Record<string, IntegrityStatus> = {};
       const cMap: Record<string, string> = {};
-      
       for (const rec of dbData) {
-        // Calculate the CURRENT hash of the data (Wait for promise)
-        // ESTO ES CLAVE: Calculamos el hash usando los datos QUE ACABAN DE LLEGAR DE MONGODB
         const currentHash = await generateHash(rec.patientData);
         cMap[rec._id] = currentHash;
-
-        // Find match on chain
-        const chainMatch = blockchainData.find(c => c.dataHash === rec.blockchainHash);
-        
-        if (chainMatch) {
-            // Compare recalculated hash vs Blockchain hash
-            vMap[rec._id] = (currentHash === chainMatch.dataHash);
-        } else {
-            // If not mined yet, compare vs the hash stored in DB metadata
-            vMap[rec._id] = (currentHash === rec.blockchainHash);
-        }
+        vMap[rec._id] = anchoredHashes === null
+          ? 'NO_VERIFICADO'
+          : anchoredHashes.has(currentHash.toLowerCase()) ? 'VALIDO' : 'ALTERADO';
       }
-      
+
       setValidationMap(vMap);
       setCalculatedHashMap(cMap);
-    } catch (e) {
+    } catch (e: any) {
       console.error("Audit load failed", e);
+      setDbError(e.message || "Error al conectar con MongoDB Local");
     } finally {
       setLoading(false);
     }
@@ -102,6 +110,25 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
      );
   }
 
+  if (dbError) {
+    return (
+      <div className="flex flex-col items-center justify-center p-8 bg-white rounded-2xl border border-red-200 shadow-sm max-w-xl mx-auto text-center my-12">
+        <div className="p-3 bg-red-100 text-red-600 rounded-full mb-3">
+          <AlertTriangle className="w-10 h-10" />
+        </div>
+        <h3 className="text-xl font-bold text-slate-800 mb-2">Error: No se pudo conectar a MongoDB Local</h3>
+        <p className="text-slate-600 mb-6 text-sm leading-relaxed">{dbError}</p>
+        <button
+          onClick={loadData}
+          className="px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-medium shadow-sm transition-colors flex items-center gap-2"
+        >
+          <RefreshCw className="w-4 h-4" />
+          <span>Reintentar Conexión</span>
+        </button>
+      </div>
+    );
+  }
+
   if (mongoRecords.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-slate-400">
@@ -131,6 +158,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
       "Hora Triage",
       "Cedula",
       "Nivel Sugerido",
+      "Nivel IA",
       "Nivel Final",
       "Modificado (Override)",
       "Estado Integridad",
@@ -140,7 +168,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
 
     const rows = filteredRecords.map(rec => {
       const d = rec.patientData;
-      const isIntegritySafe = validationMap[rec._id];
+      const integrity = validationMap[rec._id] ?? 'NO_VERIFICADO';
       const hasOverride = d.suggestedEsiLevel !== d.finalEsiLevel;
       
       return [
@@ -149,9 +177,10 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
         format(d.triageTimestamp, 'HH:mm:ss'),
         isDoctor ? d.cedula : "*** PROTEGIDO ***",
         d.suggestedEsiLevel,
+        d.aiLevel ?? "N/A", // N/A: la IA no se ejecutó en este triage
         d.finalEsiLevel,
         hasOverride ? "SI" : "NO",
-        isIntegritySafe ? "VALIDO" : "CORRUPTO",
+        integrity === 'VALIDO' ? "VALIDO" : integrity === 'ALTERADO' ? "ALTERADO" : "NO VERIFICADO",
         rec.blockchainHash,
         rec.transactionHash || "N/A"
       ].map(val => `"${val}"`).join(",");
@@ -188,6 +217,16 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
            </button>
         </div>
       </div>
+
+      {chainError && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 p-4 rounded-xl text-sm flex items-start gap-2">
+          <Info className="w-4 h-4 mt-0.5 shrink-0" />
+          <span>
+            <strong>Integridad no verificada:</strong> no se pudo leer la blockchain ({chainError}). Los registros se muestran como
+            "No verificado" hasta que la consulta al contrato funcione; pulse actualizar para reintentar.
+          </span>
+        </div>
+      )}
 
       {/* Buscador y Filtros */}
       <div className="flex flex-col md:flex-row gap-4 bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
@@ -230,10 +269,11 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
       {filteredRecords.length > 0 && (
         <div className="grid gap-4">
           {filteredRecords.map((rec) => {
-          const isIntegritySafe = validationMap[rec._id];
+          const integrity = validationMap[rec._id] ?? 'NO_VERIFICADO';
+          const isIntegritySafe = integrity === 'VALIDO';
+          const isTampered = integrity === 'ALTERADO';
           const calculatedHash = calculatedHashMap[rec._id];
           const isExpanded = expandedId === rec._id;
-          const chainMatch = chainRecords.find(c => c.dataHash === rec.blockchainHash);
           const hasOverride = rec.patientData.suggestedEsiLevel !== rec.patientData.finalEsiLevel;
           const isCorrection = !!rec.patientData.parentRecordHash;
           const d = rec.patientData; // Shortcut
@@ -246,7 +286,7 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
           const currentWait = differenceInMinutes(now, triageTime);
 
           return (
-            <div key={rec._id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${isIntegritySafe ? 'border-slate-200' : 'border-red-300 ring-2 ring-red-100'}`}>
+            <div key={rec._id} className={`bg-white rounded-xl shadow-sm border overflow-hidden transition-all ${isIntegritySafe ? 'border-slate-200' : isTampered ? 'border-red-300 ring-2 ring-red-100' : 'border-amber-300'}`}>
               <div 
                 className="p-6 flex flex-col lg:flex-row gap-6 cursor-pointer hover:bg-slate-50 transition-colors"
                 onClick={() => setExpandedId(isExpanded ? null : rec._id)}
@@ -260,12 +300,19 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
                        </div>
                        <span className="text-[10px] font-bold text-green-700 uppercase tracking-wider">Validado</span>
                      </>
-                   ) : (
+                   ) : isTampered ? (
                      <>
                        <div className="w-10 h-10 bg-red-100 rounded-full flex items-center justify-center mb-2 animate-pulse">
                          <AlertTriangle className="w-5 h-5 text-red-600" />
                        </div>
-                       <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider">Corrupto</span>
+                       <span className="text-[10px] font-bold text-red-700 uppercase tracking-wider">Alterado</span>
+                     </>
+                   ) : (
+                     <>
+                       <div className="w-10 h-10 bg-amber-100 rounded-full flex items-center justify-center mb-2">
+                         <Info className="w-5 h-5 text-amber-600" />
+                       </div>
+                       <span className="text-[10px] font-bold text-amber-700 uppercase tracking-wider text-center">No verificado</span>
                      </>
                    )}
                 </div>
@@ -559,15 +606,21 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
                            <div className="font-mono text-xs break-all text-green-700">{rec.blockchainHash}</div>
                         </div>
                         
-                        <div className={`bg-white p-3 rounded border ${isIntegritySafe ? 'border-slate-200' : 'border-red-300 bg-red-50'}`}>
+                        <div className={`bg-white p-3 rounded border ${isTampered ? 'border-red-300 bg-red-50' : 'border-slate-200'}`}>
                            <div className="text-xs text-slate-400 uppercase mb-1">Huella Digital Actual (Calculada)</div>
-                           <div className={`font-mono text-xs break-all ${isIntegritySafe ? 'text-slate-600' : 'text-red-600 font-bold'}`}>
+                           <div className={`font-mono text-xs break-all ${isTampered ? 'text-red-600 font-bold' : 'text-slate-600'}`}>
                               {calculatedHash || "Calculando..."}
                            </div>
-                           {!isIntegritySafe && (
+                           {isTampered && (
                              <div className="mt-2 text-[10px] text-red-600 font-bold flex items-center gap-1">
                                <AlertTriangle className="w-3 h-3" />
-                               ¡ALERTA DE SEGURIDAD! LOS DATOS HAN SIDO ALTERADOS
+                               ¡ALERTA DE SEGURIDAD! EL HASH ACTUAL NO ESTÁ ANCLADO EN LA BLOCKCHAIN: LOS DATOS HAN SIDO ALTERADOS
+                             </div>
+                           )}
+                           {integrity === 'NO_VERIFICADO' && (
+                             <div className="mt-2 text-[10px] text-amber-700 font-bold flex items-center gap-1">
+                               <Info className="w-3 h-3" />
+                               No se pudo consultar la blockchain: integridad sin verificar
                              </div>
                            )}
                         </div>

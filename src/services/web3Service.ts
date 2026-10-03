@@ -12,24 +12,11 @@ export class Web3Service {
   private provider: ethers.BrowserProvider | null = null;
   private contract: ethers.Contract | null = null;
   private signer: ethers.Signer | null = null;
-  private overrideAddress: string | null = null;
 
   constructor() {
     if (typeof window !== 'undefined' && window.ethereum) {
       this.provider = new ethers.BrowserProvider(window.ethereum);
     }
-  }
-
-  // Permite inyectar la dirección manualmente desde el Login si está en 0x000 o se desea sobreescribir
-  setContractAddress(address: string) {
-    this.overrideAddress = address;
-  }
-
-  private getEffectiveAddress(): string {
-    if (this.overrideAddress && ethers.isAddress(this.overrideAddress)) {
-      return this.overrideAddress;
-    }
-    return CONTRACT_ADDRESS;
   }
 
   async connectWallet(): Promise<{ address: string; role: UserRole }> {
@@ -48,14 +35,8 @@ export class Web3Service {
       this.signer = await this.provider.getSigner();
       const address = await this.signer.getAddress();
 
-      // Inicializar contrato con la dirección efectiva (Config o Manual)
-      const finalContractAddress = this.getEffectiveAddress();
-      
-      if (finalContractAddress && finalContractAddress !== "0x0000000000000000000000000000000000000000") {
-          this.contract = new ethers.Contract(finalContractAddress, CONTRACT_ABI, this.signer);
-      } else {
-          this.contract = null;
-      }
+      // Inicializar contrato con la dirección de src/config/contract.ts
+      this.contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, this.signer);
 
       // Verificación de Roles
       return await this.checkUserRole(address);
@@ -71,35 +52,34 @@ export class Web3Service {
       const lowerAddress = address.toLowerCase();
       console.log(`[MediChain] Verificando permisos para: ${address}`);
 
-      // 1. PRIORIDAD DE LAS DIRECCIONES DE TU TESIS / DEMO (WHITELIST LOCAL)
-      // Comprobar las cuentas fijas primero. Esto evita conflictos si la cuenta de médico (0x5ED...) 
-      // fue la que desplegó el Smart Contract (siendo por ende el 'owner' técnico en Blockchain).
-      const FALLBACK_ADMIN = "0xab021c825A80D5fDAA2dd38e144000b6Fc2B1762"; 
-      const FALLBACK_DOCTOR = "0x5ED24436721Ed75651F625fD3031B849b26dCd80"; // Tu cuenta médico de la tesis
-      const FALLBACK_AUDITOR = "0x35512dB79B90Cc5d3103a3C9bB640Ad3b722175F"; // Tu cuenta auditor de la tesis
+      // DOCTOR, AUDITOR y ADMIN se verifican exclusivamente contra el Smart Contract (ver más abajo).
+      // ADMISSION no tiene representación on-chain, así que es el único rol con respaldo por whitelist local.
       const FALLBACK_ADMISSION = "0xe5c4FE69F92f350226276460D238621c361bACcC"; // Tu cuenta de admisión
 
-      if (lowerAddress === FALLBACK_DOCTOR.toLowerCase()) {
-          console.log(">> ROL DETECTADO: DOCTOR (Whitelist Local)");
-          return { address, role: UserRole.DOCTOR };
-      }
-      if (lowerAddress === FALLBACK_ADMIN.toLowerCase()) {
-          console.log(">> ROL DETECTADO: ADMIN (Whitelist Local)");
-          return { address, role: UserRole.ADMIN };
-      }
-      if (lowerAddress === FALLBACK_AUDITOR.toLowerCase()) {
-          console.log(">> ROL DETECTADO: AUDITOR (Whitelist Local)");
-          return { address, role: UserRole.AUDITOR };
-      }
+      // 0. ADMISSION no tiene mapping en el Smart Contract: la whitelist local es su único mecanismo.
       if (lowerAddress === FALLBACK_ADMISSION.toLowerCase()) {
-          console.log(">> ROL DETECTADO: ADMISSION (Whitelist Local)");
+          console.log(">> ROL DETECTADO: ADMISSION (Whitelist Local - único mecanismo disponible)");
           return { address, role: UserRole.ADMISSION };
       }
 
-      // 2. INTENTO DE VERIFICACIÓN REAL (BLOCKCHAIN) PARA OTRAS DIRECCIONES DINÁMICAS
+      // 1. VERIFICACIÓN ON-CHAIN: única fuente de verdad para DOCTOR/AUDITOR/ADMIN (sin respaldo local).
       if (this.contract) {
           try {
-             // A. Verificar Doctor primero (en caso de que sea un médico registrado posteriormente)
+             // PREFERENCIA TEMPORAL DE ROL (para una wallet que es a la vez médico y owner): si en este
+             // navegador existe localStorage 'medichain_role_preference' = 'ADMIN', se comprueba owner()
+             // antes que isDoctor(). Solo cambia el orden: el rol ADMIN sigue exigiendo ser owner() en la
+             // cadena. Se desactiva borrando la clave. Ver también la comprobación B (sin cambios).
+             let preferAdmin = false;
+             try { preferAdmin = localStorage.getItem('medichain_role_preference') === 'ADMIN'; } catch { /* sin storage */ }
+             if (preferAdmin) {
+                 const ownerAddress = await this.contract.owner();
+                 if (ownerAddress.toLowerCase() === lowerAddress) {
+                     console.log(">> BLOCKCHAIN CONFIRMED: ADMIN (Owner, preferencia de rol activa)");
+                     return { address, role: UserRole.ADMIN };
+                 }
+             }
+
+             // A. Verificar Doctor
              try {
                  if (await this.contract.isDoctor(address)) {
                      console.log(">> BLOCKCHAIN CONFIRMED: DOCTOR");
@@ -128,78 +108,53 @@ export class Web3Service {
              console.error("Error general consultando contrato Blockchain.", err);
           }
       } else {
-         console.warn("⚠️ CONTRATO NO CONFIGURADO: Saltando verificación on-chain.");
+         console.warn("⚠️ CONTRATO NO CONFIGURADO: no es posible verificar DOCTOR/AUDITOR/ADMIN. Acceso denegado (sin respaldo local).");
       }
 
-      // 3. ACCESO DENEGADO
-      console.error(`ACCESO DENEGADO. La dirección ${address} no está en el contrato ni en la lista blanca.`);
+      // 2. ACCESO DENEGADO. Se llega aquí si el contrato no está disponible, o si ninguna de las
+      // tres verificaciones on-chain fue positiva para esta dirección. Ya no hay whitelist de respaldo
+      // para DOCTOR/AUDITOR/ADMIN: el contrato es la única fuente de verdad para estos roles.
+      console.error(`ACCESO DENEGADO. La dirección ${address} no está registrada en el Smart Contract (ni es ADMISSION en la whitelist local).`);
       return { address, role: UserRole.NONE };
-      
+
     } catch (e) {
       console.error("Error crítico verificando rol:", e);
       return { address, role: UserRole.NONE };
     }
   }
 
-  async registerTriage(
-    patientId: string,
-    dataHash: string,
-    triageLevel: number,
-    aiReasoningHash: string = "Manual-Override"
-  ): Promise<any> {
-    if (!this.contract) throw new Error("Error: Contrato no conectado. Verifique la dirección en Config.");
-    
-    try {
-      const GAS_PRICE_GWEI = ethers.parseUnits('35', 'gwei');
 
-      // Guarantee patient ID (cédula) is anonymized via Salted SHA-256 / Hash before sending on-chain
-      const PATIENT_SALT = "MEDICHAIN_SECRET_SALT_2026_AMOY_TRIAGE";
-      const anonymizedPatientId = patientId.startsWith('ANON-')
-        ? patientId
-        : `ANON-${ethers.id((patientId || '00000') + PATIENT_SALT).substring(2, 18).toUpperCase()}`;
+  // Lee TODOS los registros anclados en el contrato (no solo los últimos N) para verificar la
+  // integridad contra la cadena. Fail-closed: si no se puede consultar el contrato o la respuesta
+  // no contiene el total de registros, lanza un error en vez de devolver una lista vacía o parcial.
+  async getAllAnchoredRecords(): Promise<any[]> {
+    let contractToUse = this.contract;
 
-      const tx = await this.contract.registerTriage(
-        anonymizedPatientId, 
-        dataHash,  
-        triageLevel, 
-        aiReasoningHash,
-        {
-          maxPriorityFeePerGas: GAS_PRICE_GWEI,
-          maxFeePerGas: GAS_PRICE_GWEI,
-          gasLimit: 500000 
-        }
-      );
-      
-      await tx.wait(1); 
-      return tx;
-    } catch (error) {
-      console.error("Fallo en transacción Blockchain:", error);
-      throw error;
-    }
-  }
-
-  async getLatestRecords(limit: number = 20): Promise<any[]> {
-    try {
-      let contractToUse = this.contract;
-
-      if (!contractToUse && window.ethereum) {
-          const tempProvider = new ethers.BrowserProvider(window.ethereum);
-          // Intentamos usar la dirección manual si existe, sino la de config
-          const addr = this.getEffectiveAddress();
-          if (addr && addr !== "0x0000000000000000000000000000000000000000") {
-             contractToUse = new ethers.Contract(addr, CONTRACT_ABI, tempProvider);
-          }
+    if (!contractToUse) {
+      if (!window.ethereum) {
+        throw new Error('No hay proveedor de blockchain (MetaMask) disponible para consultar el contrato.');
       }
-
-      if (!contractToUse) return [];
-      
-      const records = await contractToUse.getLatestRecords(limit);
-      return this.mapRecords(records);
-
-    } catch (e) {
-      console.error("Error obteniendo registros:", e);
-      return [];
+      contractToUse = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, new ethers.BrowserProvider(window.ethereum));
     }
+
+    const total = Number(await contractToUse.getTotalRecords());
+    if (total === 0) return [];
+
+    let records = this.mapRecords(await contractToUse.getLatestRecords(total));
+    if (records.length !== total) {
+      // Plan B por si getLatestRecords limita el tamaño: leer el mapping records(i) uno a uno. No se
+      // conoce si los índices empiezan en 0 o en 1, así que se recorre 0..total y se descartan vacíos.
+      const byIndex: any[] = [];
+      for (let i = 0; i <= total; i++) {
+        const r = await contractToUse.records(i);
+        if (r && r.dataHash) byIndex.push(r);
+      }
+      records = this.mapRecords(byIndex);
+    }
+    if (records.length !== total) {
+      throw new Error(`Se leyeron ${records.length} de ${total} registros anclados; la verificación no sería completa.`);
+    }
+    return records;
   }
 
   private mapRecords(records: any[]): any[] {

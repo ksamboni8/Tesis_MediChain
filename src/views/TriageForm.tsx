@@ -1,13 +1,36 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { ESILevel } from '../types';
 import type { PatientData, VitalSigns, GlasgowScale, HybridRecord, PendingPatient } from '../types';
-import { BluetoothDeviceController, simulateIoTReadings } from '../services/bluetoothService';
-import { Activity, Bluetooth, Save, RefreshCw, AlertTriangle, ShieldAlert, FileWarning, Brain, HeartPulse, Wind, Droplets, Thermometer, Sun, Moon, Users, CheckCircle, Zap, Wallet } from 'lucide-react';
+import { BluetoothDeviceController } from '../services/bluetoothService';
+import type { IoTData, IoTDiagEvent } from '../services/bluetoothService';
+import { Activity, Bluetooth, Save, RefreshCw, AlertTriangle, FileWarning, Brain, HeartPulse, Sun, Moon, Users, CheckCircle } from 'lucide-react';
 import { dbService } from '../services/databaseService';
-import { web3Service } from '../services/web3Service';
-import { generateHash } from '../services/cryptoService';
 import { telemetryService } from '../services/telemetryService';
+import { missingNarrativeFields, missingRequiredTriageFields } from '../shared/requiredFields';
 import { addMinutes } from 'date-fns';
+
+// Glasgow en el formulario: cada subescala es null hasta que el médico elige un valor. No hay
+// valor por defecto (antes 4/5/6 = 15), para que un Glasgow no evaluado no se guarde como normal.
+type GlasgowInput = { eyeOpening: number | null; verbalResponse: number | null; motorResponse: number | null; total: number | null };
+const EMPTY_GLASGOW: GlasgowInput = { eyeOpening: null, verbalResponse: null, motorResponse: null, total: null };
+
+// Estados del ensayo de captura IoT que ve el médico
+type BleSensorState = 'esperando_dedo' | 'midiendo' | 'senal_deficiente' | 'estable' | 'incompleto' | 'timeout';
+
+// Ensayo en curso. Se guarda en un ref porque los callbacks BLE se registran una sola vez al conectar.
+interface BleTrial {
+  fingerOn: boolean;          // Contacto del dedo registrado en este ensayo
+  sawFingerOff: boolean;      // La sesión ya vio "sin dedo": el siguiente contacto es un inicio real
+  contactSeen: boolean;       // El inicio del ensayo se observó en vivo (el cronómetro es válido)
+  startedAt: number | null;   // performance.now() estimado del contacto
+  captured: boolean;          // Ya se llenó el formulario con el paquete ready de este ensayo
+  firmwareTime: boolean;      // t_iot ya viene de CAPTURA_LISTA del ESP32
+}
+const newBleTrial = (): BleTrial => ({
+  fingerOn: false, sawFingerOff: false, contactSeen: false, startedAt: null, captured: false, firmwareTime: false
+});
+// El ESP32 confirma el dedo tras 20 muestras a 100 Hz; su t = 0 es la primera de ellas
+const FINGER_CONFIRM_MS = 200;
 
 interface TriageFormProps {
   walletAddress: string;
@@ -43,174 +66,6 @@ const GLASGOW_OPTIONS = {
   ]
 };
 
-// ─────────────────────────────────────────────────────────────────
-// SYMPTOM_CATEGORIES — rediseñado con contexto colombiano
-// Mantiene tu sistema de activeColor por categoría
-// ─────────────────────────────────────────────────────────────────
-const SYMPTOM_CATEGORIES = [
-  {
-    name: 'Respiratorio / Cardiovascular',
-    activeColor: 'bg-blue-500 text-white border-blue-400 shadow-[0_0_10px_rgba(59,130,246,0.5)]',
-    symptoms: [
-      'Paro cardiorrespiratorio',
-      'Obstrucción de vía aérea',
-      'Dificultad respiratoria severa',
-      'Dolor torácico sugestivo de síndrome coronario',
-      'Palpitaciones con inestabilidad hemodinámica',
-      'Dificultad respiratoria moderada',
-      'Crisis asmática moderada-severa',
-      'Síntomas respiratorios moderados',
-      'Infección respiratoria leve'
-    ]
-  },
-  {
-    name: 'Neurológico',
-    activeColor: 'bg-purple-500 text-white border-purple-400 shadow-[0_0_10px_rgba(168,85,247,0.5)]',
-    symptoms: [
-      'Estado de inconsciencia',
-      'Convulsión activa',
-      'Déficit neurológico focal agudo',
-      'Alteración aguda del estado mental',
-      'Convulsión reciente',
-      'Cefalea súbita intensa'
-    ]
-  },
-  {
-    name: 'Trauma',
-    activeColor: 'bg-orange-500 text-white border-orange-400 shadow-[0_0_10px_rgba(249,115,22,0.5)]',
-    symptoms: [
-      'Politraumatismo grave',
-      'Trauma craneoencefálico grave',
-      'Fractura expuesta',
-      'Quemadura extensa',
-      'Quemadura química',
-      'Herida por arma de fuego',
-      'Herida por arma cortopunzante',
-      'Trauma moderado',
-      'Fractura cerrada',
-      'Luxación',
-      'Esguince leve',
-      'Herida superficial'
-    ]
-  },
-  {
-    name: 'Dolor / Abdomen',
-    activeColor: 'bg-red-500 text-white border-red-400 shadow-[0_0_10px_rgba(239,68,68,0.5)]',
-    symptoms: [
-      'Hemorragia masiva',
-      'Hemorragia activa',
-      'Dolor abdominal moderado-severo',
-      'Vómito persistente',
-      'Diarrea con deshidratación moderada',
-      'Cólico renal',
-      'Retención urinaria',
-      'Dolor lumbar mecánico'
-    ]
-  },
-  {
-    name: 'Sistémico',
-    activeColor: 'bg-emerald-500 text-white border-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.5)]',
-    symptoms: [
-      'Sospecha de infección grave',
-      'Fiebre con signos de alarma',
-      'Reacción alérgica moderada-grave',
-      'Anafilaxia',
-      'Fiebre persistente',
-      'Síndrome febril sin signos de alarma'
-    ]
-  },
-  {
-    name: 'Obstétrico',
-    activeColor: 'bg-pink-500 text-white border-pink-400 shadow-[0_0_10px_rgba(236,72,153,0.5)]',
-    symptoms: [
-      'Eclampsia',
-      'Hemorragia obstétrica severa',
-      'Preeclampsia',
-      'Sangrado durante el embarazo'
-    ]
-  },
-  {
-    name: 'Condiciones Especiales',
-    activeColor: 'bg-teal-500 text-white border-teal-400 shadow-[0_0_10px_rgba(20,184,166,0.5)]',
-    symptoms: [
-      'Ofidismo',
-      'Intoxicación por plaguicidas',
-      'Violencia sexual',
-      'Paciente agresivo o riesgo para terceros',
-      'Intoxicación por sustancias psicoactivas',
-      'Violencia intrafamiliar con lesiones'
-    ]
-  }
-];
-
-// ─────────────────────────────────────────────────────────────────
-// SYMPTOM_LEVELS — mapa completo para el algoritmo
-// ─────────────────────────────────────────────────────────────────
-const SYMPTOM_LEVELS: Record<string, ESILevel> = {
-  // ── TRIAGE I ────────────────────────────────────────────────
-  'Paro cardiorrespiratorio':                                    ESILevel.ONE,
-  'Obstrucción de vía aérea':                                    ESILevel.ONE,
-  'Dificultad respiratoria severa':                              ESILevel.ONE,
-  'Estado de inconsciencia':                                     ESILevel.ONE,
-  'Convulsión activa':                                           ESILevel.ONE,
-  'Déficit neurológico focal agudo':                             ESILevel.ONE,
-  'Politraumatismo grave':                                       ESILevel.ONE,
-  'Trauma craneoencefálico grave':                               ESILevel.ONE,
-  'Hemorragia masiva':                                           ESILevel.ONE,
-  'Shock Hipovolémico':                                          ESILevel.ONE,
-  'Shock Cardiogénico':                                          ESILevel.ONE,
-  'Shock Distributivo':                                          ESILevel.ONE,
-  'Shock Obstructivo':                                           ESILevel.ONE,
-  'Shock Neurogénico':                                           ESILevel.ONE,
-  'Eclampsia':                                                   ESILevel.ONE,
-  'Hemorragia obstétrica severa':                                ESILevel.ONE,
-  'Ofidismo':                                                    ESILevel.ONE,
-  'Intoxicación por plaguicidas':                                ESILevel.ONE,
-
-  // ── TRIAGE II ────────────────────────────────────────────────
-  'Dolor torácico sugestivo de síndrome coronario':              ESILevel.TWO,
-  'Palpitaciones con inestabilidad hemodinámica':                ESILevel.TWO,
-  'Dificultad respiratoria moderada':                            ESILevel.TWO,
-  'Crisis asmática moderada-severa':                             ESILevel.TWO,
-  'Alteración aguda del estado mental':                          ESILevel.TWO,
-  'Convulsión reciente':                                         ESILevel.TWO,
-  'Cefalea súbita intensa':                                      ESILevel.TWO,
-  'Fractura expuesta':                                           ESILevel.TWO,
-  'Quemadura extensa':                                           ESILevel.TWO,
-  'Quemadura química':                                           ESILevel.TWO,
-  'Herida por arma de fuego':                                    ESILevel.TWO,
-  'Herida por arma cortopunzante':                               ESILevel.TWO,
-  'Hemorragia activa':                                           ESILevel.TWO,
-  'Sospecha de infección grave':                                 ESILevel.TWO,
-  'Fiebre con signos de alarma':                                 ESILevel.TWO,
-  'Reacción alérgica moderada-grave':                            ESILevel.TWO,
-  'Anafilaxia':                                                  ESILevel.TWO,
-  'Preeclampsia':                                                ESILevel.TWO,
-  'Sangrado durante el embarazo':                                ESILevel.TWO,
-  'Violencia sexual':                                            ESILevel.TWO,
-  'Paciente agresivo o riesgo para terceros':                    ESILevel.TWO,
-  'Intoxicación por sustancias psicoactivas':                    ESILevel.TWO,
-
-  // ── TRIAGE III ────────────────────────────────────────────────
-  'Síntomas respiratorios moderados':                            ESILevel.THREE,
-  'Trauma moderado':                                             ESILevel.THREE,
-  'Fractura cerrada':                                            ESILevel.THREE,
-  'Luxación':                                                    ESILevel.THREE,
-  'Dolor abdominal moderado-severo':                             ESILevel.THREE,
-  'Vómito persistente':                                          ESILevel.THREE,
-  'Diarrea con deshidratación moderada':                         ESILevel.THREE,
-  'Cólico renal':                                                ESILevel.THREE,
-  'Retención urinaria':                                          ESILevel.THREE,
-  'Fiebre persistente':                                          ESILevel.THREE,
-  'Síndrome febril sin signos de alarma':                        ESILevel.THREE,
-  'Violencia intrafamiliar con lesiones':                        ESILevel.THREE,
-
-  // ── TRIAGE IV ─────────────────────────────────────────────────
-  'Infección respiratoria leve':                                 ESILevel.FOUR,
-  'Esguince leve':                                               ESILevel.FOUR,
-  'Herida superficial':                                          ESILevel.FOUR,
-  'Dolor lumbar mecánico':                                       ESILevel.FOUR,
-};
 
 // ─────────────────────────────────────────────────────────────────
 // UMBRALES DE SIGNOS VITALES
@@ -251,8 +106,6 @@ const calcularTriage = (
   pas: number,
   sato2: number,
   temperatura: number,
-  age: number,
-  gender: string,
   symptoms: string[],  // incluye 'Shock Hipovolémico', etc.
   modifiers: {
     gestante: boolean;
@@ -344,15 +197,7 @@ const calcularTriage = (
       : 'sin tipificar'}`,
     ESILevel.ONE);
 
-  // ── 8. SÍNTOMAS CLÍNICOS ─────────────────────────────────────
-  symptoms.forEach(symptom => {
-    const level = SYMPTOM_LEVELS[symptom];
-    if (level !== undefined) {
-      evaluate(true, 'symptom', `Síntoma: ${symptom}`, level);
-    }
-  });
-
-  // ── 9. FACTORES MODIFICADORES ────────────────────────────────
+  // ── 8. FACTORES MODIFICADORES ────────────────────────────────
   // Suben el nivel calculado en 1 si aplica.
   // Solo actúan si el nivel base es T3, T4 o T5 (no empeoran ya un T1/T2).
   // Nunca deben modificar Triage I o II.
@@ -443,6 +288,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
 
   const [bpInputText, setBpInputText] = useState('');
 
+
   const handleBpInputChange = (value: string) => {
     setBpInputText(value);
     
@@ -460,8 +306,11 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     const cleanSys = parts[0] ? parts[0].trim() : '';
     const cleanDia = parts[1] ? parts[1].trim() : '';
     
-    const sysNum = cleanSys !== '' ? (parseInt(cleanSys) || 0) : '';
-    const diaNum = cleanDia !== '' ? (parseInt(cleanDia) || 0) : '';
+    // Texto no numérico → '' (campo vacío, obligatorio), no 0: un 0 contaría como valor registrado.
+    // Un "0" escrito (o el botón "signos vitales en 0") sí se conserva como 0.
+    const toBp = (s: string): number | '' => { const n = parseInt(s); return isNaN(n) ? '' : n; };
+    const sysNum = cleanSys !== '' ? toBp(cleanSys) : '';
+    const diaNum = cleanDia !== '' ? toBp(cleanDia) : '';
     
     let mapVal: number | '' = '';
     if (typeof sysNum === 'number' && typeof diaNum === 'number' && sysNum > 0 && diaNum > 0) {
@@ -476,9 +325,13 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     }));
   };
 
-  const [glasgow, setGlasgow] = useState<GlasgowScale>({
-    eyeOpening: 4, verbalResponse: 5, motorResponse: 6, total: 15
-  });
+  const [glasgow, setGlasgow] = useState<GlasgowInput>(EMPTY_GLASGOW);
+
+  // Campos obligatorios que faltan (misma regla que el servidor, src/shared/requiredFields.ts).
+  // Un signo vital vacío cuenta igual si no se digitó o si el sensor IoT no entregó dato; una
+  // subescala de Glasgow falta mientras el médico no elija un valor.
+  const missingNarrative = missingNarrativeFields(patientInfo);
+  const missingRequired = missingRequiredTriageFields({ ...patientInfo, vitals, glasgow });
 
   const [selectedSymptoms, setSelectedSymptoms]   = useState<string[]>([]);
 
@@ -493,18 +346,36 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       lactante: boolean;
       inmunosuprimido: boolean;
       oncologico: boolean;
-    }
+    };
+    _metrics?: { gemini_ms: number; modelUsed: string; modelsTried?: number; tokensIn?: number | null; tokensOut?: number | null };
   } | null>(null);
   const [isAiAnalyzing, setIsAiAnalyzing] = useState(false);
   const [aiErrorMsg, setAiErrorMsg] = useState('');
+  // Identifica el análisis vigente: al cambiar de paciente se incrementa y una respuesta en curso se descarta
+  const aiRequestIdRef = useRef(0);
+
+  // Descarta el análisis de IA y lo derivado de él. suggestedLevel, triageResult y finalLevel se
+  // recalculan con el algoritmo en los efectos de abajo al quedar aiTriageResponse en null y
+  // overrideReason vacío. Los síntomas y modificadores que puso la IA se limpian donde se llama.
+  const resetAiState = () => {
+    aiRequestIdRef.current++;
+    setAiTriageResponse(null);
+    setAiExtractedSymptoms([]);
+    setAiErrorMsg('');
+    setIsAiAnalyzing(false);
+    setOverrideReason('');
+  };
 
   const handleAnalyzeSymptomsWithAI = async () => {
+    if (missingNarrative.length > 0) return; // El botón ya está deshabilitado; defensa adicional
+    const requestId = ++aiRequestIdRef.current;
     setIsAiAnalyzing(true);
     setAiErrorMsg('');
     try {
-      const clinicalText = `${patientInfo.symptoms} | ${patientInfo.currentIllness}`;
+      // El servidor valida los dos campos y arma el texto clínico ("motivo | enfermedad actual")
       const payload = {
-        clinicalText,
+        symptoms: patientInfo.symptoms,
+        currentIllness: patientInfo.currentIllness,
         patientInfo: {
           age: parseInt(patientInfo.age) || 0,
           gender: patientInfo.gender,
@@ -536,7 +407,9 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       }
 
       const data = await res.json();
-      
+      // El paciente cambió mientras se analizaba: esta respuesta es de otro paciente y se descarta
+      if (requestId !== aiRequestIdRef.current) return;
+
       setAiTriageResponse(data);
       setAiExtractedSymptoms(data.extractedSymptoms || []);
       
@@ -550,26 +423,36 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       }
 
       if (data.extractedSymptoms && Array.isArray(data.extractedSymptoms)) {
-        const mapped: string[] = [];
-        data.extractedSymptoms.forEach((s: string) => {
-          const cleanS = s.toLowerCase().trim();
-          const matchKey = Object.keys(SYMPTOM_LEVELS).find(k => 
-            k.toLowerCase() === cleanS || cleanS.includes(k.toLowerCase()) || k.toLowerCase().includes(cleanS)
-          );
-          if (matchKey) {
-            mapped.push(matchKey);
-          } else {
-            mapped.push(s);
-          }
+        setSelectedSymptoms(data.extractedSymptoms);
+      }
+
+      // Aplicar directamente el nivel de triage determinado por la IA de forma soberana
+      if (data.aiLevel) {
+        setSuggestedLevel(data.aiLevel);
+        setFinalLevel(data.aiLevel);
+        setTriageResult({
+          level: data.aiLevel,
+          reasons: [
+            {
+              factor: 'symptom',
+              description: data.explanation || 'Clasificación asignada por IA Clínica según datos integrales del paciente',
+              suggestedLevel: data.aiLevel
+            }
+          ],
+          modifiersApplied: []
         });
-        setSelectedSymptoms(mapped);
+        if (data.explanation) {
+          setOverrideReason(`Clasificado por IA: ${data.explanation}`);
+        }
       }
 
     } catch (err: any) {
       console.error(err);
-      setAiErrorMsg(err.message || 'Fallo indeterminado en el análisis con Inteligencia Artificial.');
+      if (requestId === aiRequestIdRef.current) {
+        setAiErrorMsg(err.message || 'Fallo indeterminado en el análisis con Inteligencia Artificial.');
+      }
     } finally {
-      setIsAiAnalyzing(false);
+      if (requestId === aiRequestIdRef.current) setIsAiAnalyzing(false);
     }
   };
 
@@ -624,10 +507,20 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
   const [correctionReason, setCorrectionReason]   = useState('');
   const [pendingPatients, setPendingPatients]     = useState<PendingPatient[]>([]);
   const [selectedPendingId, setSelectedPendingId] = useState<string | null>(null);
-  const [status, setStatus]                       = useState<'IDLE' | 'HASHING' | 'MINING' | 'SUCCESS' | 'ERROR'>('IDLE');
+  const [status, setStatus]                       = useState<'IDLE' | 'MINING' | 'SUCCESS' | 'ERROR'>('IDLE');
   const [statusMsg, setStatusMsg]                 = useState('');
-  const [signingMode, setSigningMode]             = useState<'manual' | 'invisible'>('invisible');
   const [bleController]                           = useState(() => new BluetoothDeviceController());
+  const [isBleConnected, setIsBleConnected]       = useState(false);
+  // Estado del ensayo de captura IoT (ver applyBleReading / applyBleDiagEvent)
+  const [bleSensorState, setBleSensorState]       = useState<BleSensorState | null>(null);
+  const bleSensorStateRef                         = useRef<BleSensorState | null>(null);
+  // t_iot real: tiempo de CAPTURA_LISTA medido por el ESP32 desde el contacto del dedo
+  const [bleAcquisitionSec, setBleAcquisitionSec] = useState<number | null>(null);
+  // Cronómetro visible: arranca con el contacto del dedo y se detiene con ready = true
+  const [bleCaptureStart, setBleCaptureStart]     = useState<number | null>(null);
+  const [bleElapsedSec, setBleElapsedSec]         = useState<number | null>(null);
+  const bleTrialRef                               = useRef<BleTrial>(newBleTrial());
+  const bleSessionActiveRef                       = useRef(false);
 
   // Tema — sin cambios
   const t = isDarkMode ? {
@@ -655,7 +548,13 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     } catch (error) { console.error("Error al cargar pacientes pendientes:", error); }
   };
 
+  // Al seleccionar un paciente en espera se reinicia todo el bloque clínico: nada que el médico haya
+  // llenado (o la IA o el sensor BLE hayan puesto) para el paciente anterior puede quedar en este.
+  // Se conservan solo los datos demográficos que vienen de Admisión.
   const selectPendingPatient = (patient: PendingPatient) => {
+    // Volver a pulsar el paciente ya seleccionado no borra lo que se lleva escrito
+    if (patient.id === selectedPendingId) return;
+
     setPatientInfo({
       cedula: patient.cedula,
       name: patient.name,
@@ -666,13 +565,41 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       currentIllness: ''
     });
     setSelectedPendingId(patient.id);
-    
-    // Clear vitals when a pending patient is selected so they can be entered fresh
+
+    // El análisis de IA del paciente anterior no debe pasar a este: se descarta junto con los
+    // síntomas y modificadores que la IA había puesto. adultoMayor/lactante se recalculan con la
+    // edad del nuevo paciente (el efecto de edad no corre si la edad no cambia).
+    resetAiState();
+    setSelectedSymptoms([]);
+    setSelectedModifiers({
+      gestante: false,
+      adultoMayor: patient.age > 65,
+      lactante: patient.age < 1 && patient.age >= 0,
+      inmunosuprimido: false,
+      oncologico: false
+    });
+
+    // Datos clínicos que el médico llena a mano (todos entran en buildHashPayload)
     setVitals({
       heartRate: '', spo2: '', temperature: '', respiratoryRate: '',
       bloodPressureSys: '', bloodPressureDia: '', bloodPressureMap: '', painLevel: 0
     });
     setBpInputText('');
+    setGlasgow(EMPTY_GLASGOW);
+    setHasShock(false);
+    setShockType('');
+    setCorrectionReason('');
+    // finalLevel lo vuelve a igualar al nivel sugerido el efecto que depende de selectedPendingId
+
+    // Sesión BLE: se cierra para que ni las lecturas en curso ni el t_iot del paciente anterior
+    // se asignen a este. disconnect() anula los callbacks, así que no salta el aviso de desconexión.
+    bleController.disconnect();
+    resetBleSession();
+    setBleAcquisitionSec(null);
+
+    // Un error de guardado del paciente anterior no aplica a este
+    setStatus('IDLE');
+    setStatusMsg('');
   };
 
   const handleSetAllVitalsToZero = () => {
@@ -711,6 +638,9 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
   useEffect(() => {
     if (initialData) {
       const d = initialData.patientData;
+      // Una corrección o re-evaluación empieza sin análisis de IA propio (aiLevel null si no se
+      // vuelve a analizar). En corrección, overrideReason se recarga del registro más abajo.
+      resetAiState();
       setPatientInfo({
         cedula: d.cedula,
         name: d.name,
@@ -726,7 +656,8 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
           bloodPressureSys: '', bloodPressureDia: '', bloodPressureMap: '', painLevel: 0
         });
         setBpInputText('');
-        setGlasgow({ eyeOpening: 4, verbalResponse: 5, motorResponse: 6, total: 15 });
+        // Re-evaluación = nueva valoración: el Glasgow se vuelve a evaluar (obligatorio), como los signos vitales
+        setGlasgow(EMPTY_GLASGOW);
         setSelectedSymptoms([]);
         setHasShock(false);
         setShockType('');
@@ -773,49 +704,218 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
   }, [initialData, isReEvaluation]);
 
   useEffect(() => {
-    setGlasgow(prev => ({ ...prev, total: prev.eyeOpening + prev.verbalResponse + prev.motorResponse }));
+    setGlasgow(prev => ({
+      ...prev,
+      total: prev.eyeOpening !== null && prev.verbalResponse !== null && prev.motorResponse !== null
+        ? prev.eyeOpening + prev.verbalResponse + prev.motorResponse
+        : null
+    }));
   }, [glasgow.eyeOpening, glasgow.verbalResponse, glasgow.motorResponse]);
 
   // ── Recalcular triage al cambiar cualquier variable clínica ──
   useEffect(() => {
+    // Si la IA ya determinó el nivel clínico, se mantiene la clasificación de la IA
+    if (aiTriageResponse?.aiLevel) {
+      setSuggestedLevel(aiTriageResponse.aiLevel);
+      return;
+    }
+
     const allSymptoms = [...selectedSymptoms];
     if (hasShock) allSymptoms.push(shockType ? `Shock ${shockType}` : 'Shock (Sin tipificar)');
 
     const result = calcularTriage(
-      glasgow.total,
+      // Glasgow incompleto → 15 (no aporta criterio), como antes con el valor por defecto. No se usa
+      // null: "null <= 8" es verdadero y daría Triage I. No se puede guardar sin Glasgow completo,
+      // así que el nivel sugerido que se guarda siempre usa el Glasgow real.
+      glasgow.total ?? 15,
       Number(vitals.respiratoryRate) || 0,
       Number(vitals.heartRate) || 0,
       Number(vitals.bloodPressureSys) || 0,
       Number(vitals.spo2) || 0,
       Number(vitals.temperature) || 0,
-      parseInt(patientInfo.age) || 0,
-      patientInfo.gender,
       allSymptoms,
       selectedModifiers
     );
     setTriageResult(result);
     setSuggestedLevel(result.level);
-  }, [glasgow.total, vitals, selectedSymptoms, hasShock, shockType, patientInfo.age, patientInfo.gender, selectedModifiers]);
+  }, [glasgow.total, vitals, selectedSymptoms, hasShock, shockType, patientInfo.age, patientInfo.gender, selectedModifiers, aiTriageResponse]);
 
   useEffect(() => {
     if (!overrideReason && !isCorrectionMode) setFinalLevel(suggestedLevel);
-  }, [suggestedLevel, isCorrectionMode, overrideReason]);
+    // selectedPendingId: al cambiar de paciente, un nivel final elegido a mano para el anterior se
+    // descarta aunque el nivel sugerido del nuevo paciente coincida con el del anterior
+  }, [suggestedLevel, isCorrectionMode, overrideReason, selectedPendingId]);
 
-  const handleIoTConnect = async () => {
-    setIsScanning(true);
-    try {
-      const data = await bleController.requestDevice() ? await bleController.connect() : simulateIoTReadings();
-      if (data) setVitals(prev => ({ ...prev, ...data }));
-    } catch (e) {
-      setVitals(prev => ({ ...prev, ...simulateIoTReadings() }));
-    } finally { setIsScanning(false); }
+  // Al desmontar el formulario (guardar, cambiar de vista) se cierra la conexión GATT si sigue
+  // abierta. disconnect() anula los callbacks antes de cerrar: no hay aviso ni setState tras desmontar.
+  useEffect(() => {
+    return () => bleController.disconnect();
+  }, [bleController]);
+
+  // Cronómetro visible mientras el ensayo no termina (se congela en incompleto / timeout)
+  useEffect(() => {
+    if (bleCaptureStart === null || (bleSensorState !== 'midiendo' && bleSensorState !== 'senal_deficiente')) return;
+    const id = setInterval(() => setBleElapsedSec((performance.now() - bleCaptureStart) / 1000), 100);
+    return () => clearInterval(id);
+  }, [bleCaptureStart, bleSensorState]);
+
+  const setBleState = (state: BleSensorState | null) => {
+    bleSensorStateRef.current = state;
+    setBleSensorState(state);
   };
 
-  const toggleSymptom = (symptom: string) => {
-    setSelectedSymptoms(prev => prev.includes(symptom) ? prev.filter(s => s !== symptom) : [...prev, symptom]);
+  const resetBleSession = () => {
+    bleSessionActiveRef.current = false;
+    bleTrialRef.current = newBleTrial();
+    setIsBleConnected(false);
+    setBleState(null);
+    setBleCaptureStart(null);
+    setBleElapsedSec(null);
+  };
+
+  // Contacto del dedo: nuevo ensayo y arranque del cronómetro de captura. Lo disparan el evento
+  // CONTACTO del ESP32 (force) o el primer paquete con dedo tras haber visto "sin dedo".
+  const startBleTrial = (force: boolean) => {
+    const trial = bleTrialRef.current;
+    if (trial.fingerOn && !force) return;
+    const contactSeen = force || trial.sawFingerOff;
+    const startedAt = contactSeen ? performance.now() - FINGER_CONFIRM_MS : null;
+    Object.assign(trial, { fingerOn: true, contactSeen, startedAt, captured: false, firmwareTime: false });
+    setBleCaptureStart(startedAt);
+    setBleElapsedSec(contactSeen ? FINGER_CONFIRM_MS / 1000 : null);
+    setBleState('midiendo');
+  };
+
+  // Aplica un paquete del ESP32. Los signos vitales solo se llenan con ready = true
+  // (CAPTURA_LISTA): los valores previos a la estabilización no llegan al formulario.
+  const applyBleReading = (d: IoTData) => {
+    const trial = bleTrialRef.current;
+    const current = bleSensorStateRef.current;
+
+    if (!d.finger) {
+      trial.fingerOn = false;
+      trial.sawFingerOff = true;
+      if (current === 'midiendo' || current === 'senal_deficiente') setBleState('incompleto');
+      else if (current === null || current === 'esperando_dedo') setBleState('esperando_dedo');
+      // estable / incompleto / timeout se conservan hasta el siguiente contacto
+      return;
+    }
+
+    startBleTrial(false);   // Sin efecto si el contacto ya estaba registrado
+
+    if (d.ready) {
+      if (trial.captured) return;
+      trial.captured = true;
+
+      // Respaldo si la notificación CAPTURA_LISTA no llegó: reloj de la app desde el contacto.
+      // Si la sesión empezó con el dedo ya puesto, el contacto no se observó y no hay t_iot.
+      if (!trial.firmwareTime && trial.contactSeen && trial.startedAt !== null) {
+        const sec = Number(((performance.now() - trial.startedAt) / 1000).toFixed(2));
+        setBleAcquisitionSec(sec);
+        setBleElapsedSec(sec);
+      }
+
+      console.log(`[ESP32] Captura: FC ${d.heartRate} lpm, SpO2 ${d.spo2} %, Temp ${d.temperature} °C`);
+
+      setVitals(prev => {
+        // Con ready el ESP32 ya filtró la temperatura (lectura cruda >= 33 °C, estable 3 s,
+        // + CAL_B): llega desde 34.5 °C. Solo se descarta un valor nulo o mayor a 43 °C.
+        const validTemp = d.temperature > 0 && d.temperature <= 43.0;
+        return {
+          ...prev,
+          heartRate: d.heartRate > 0 ? d.heartRate : prev.heartRate,
+          spo2: d.spo2 > 0 ? d.spo2 : prev.spo2,
+          temperature: validTemp ? d.temperature : prev.temperature
+        };
+      });
+      setBleState('estable');
+      return;
+    }
+
+    // Tras TIMEOUT el ESP32 sigue enviando datos hasta que se retira el dedo
+    if (bleSensorStateRef.current === 'timeout') return;
+    setBleState(d.quality === 'poor_signal' ? 'senal_deficiente' : 'midiendo');
+  };
+
+  // Evento de la característica de diagnóstico ("ensayo,código,tiempo_ms" medido por el ESP32)
+  const applyBleDiagEvent = (ev: IoTDiagEvent) => {
+    const trial = bleTrialRef.current;
+
+    switch (ev.code) {
+      case 'C':
+        startBleTrial(true);
+        break;
+      case 'L': {
+        // t_iot oficial: CAPTURA_LISTA, en ms desde el contacto del dedo
+        const sec = Number((ev.elapsedMs / 1000).toFixed(2));
+        trial.firmwareTime = true;
+        setBleAcquisitionSec(sec);
+        setBleElapsedSec(sec);
+        break;
+      }
+      case 'INC':
+        trial.fingerOn = false;
+        trial.sawFingerOff = true;
+        setBleState('incompleto');
+        break;
+      case 'TO':
+        setBleState('timeout');
+        break;
+      case 'R':
+        trial.fingerOn = false;
+        trial.sawFingerOff = true;
+        break;
+    }
+  };
+
+
+  const handleIoTConnect = async () => {
+    if (isBleConnected) {
+      bleController.disconnect();
+      resetBleSession();
+      return;
+    }
+
+    setIsScanning(true);
+    setBleAcquisitionSec(null);
+    try {
+      const deviceGranted = await bleController.requestDevice();
+      if (deviceGranted) {
+        // El cronómetro de t_iot no arranca aquí sino con el contacto del dedo (startBleTrial)
+        const data = await bleController.connect(applyBleReading, () => {
+          // Desconexión no solicitada (ESP32 apagado o fuera de rango). Si ocurre durante
+          // el intento de conexión, el catch de abajo ya informa la falla: no se duplica el aviso.
+          const wasActive = bleSessionActiveRef.current;
+          resetBleSession();
+          if (wasActive) {
+            alert("⚠️ Se perdió la conexión con el sensor IoT (ESP32). Los valores ya capturados se conservan; verifique el equipo o continúe con captura manual.");
+          }
+        }, applyBleDiagEvent);
+        bleSessionActiveRef.current = true;
+        setIsBleConnected(true);
+        if (data) applyBleReading(data);
+      } else {
+        // RF-03: navegador sin soporte Web Bluetooth o selector de dispositivo cancelado.
+        // No se precarga ningún dato simulado: el médico completa los signos vitales manualmente.
+        resetBleSession();
+        alert("⚠️ No se pudo iniciar la conexión con el sensor IoT (ESP32). Por favor, ingrese los signos vitales manualmente.");
+      }
+    } catch (e) {
+      // RF-03: falló la conexión GATT o hubo timeout sin datos del sensor. No se sustituye con
+      // valores simulados: se cierra la conexión GATT (si quedó abierta) y se deja el formulario
+      // en captura manual, igual que si nunca se hubiera intentado la conexión BLE.
+      console.error('Error BLE:', e);
+      bleController.disconnect();
+      resetBleSession();
+      alert("⚠️ La conexión automática con el sensor IoT (ESP32) falló. Por favor, ingrese los signos vitales manualmente.");
+    } finally {
+      setIsScanning(false);
+    }
   };
 
   const handleSubmit = async () => {
+    // El botón ya está deshabilitado y la lista de faltantes visible; defensa adicional
+    if (missingRequired.length > 0) return;
     if (suggestedLevel !== finalLevel && !overrideReason.trim()) {
       alert("⚠️ REQUERIDO: Debe justificar por qué cambió el nivel sugerido por el sistema.");
       return;
@@ -829,9 +929,6 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       return;
     }
 
-    setStatus('HASHING');
-    setStatusMsg("Verificando consistencia clínica...");
-
     const recordId = crypto.randomUUID();
     const finalSymptoms = [...selectedSymptoms];
     if (hasShock) finalSymptoms.push(shockType ? `Shock ${shockType}` : 'Shock (Sin tipificar)');
@@ -840,6 +937,15 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
     if (selectedModifiers.lactante) finalSymptoms.push('Modifier: Lactante < 1 año');
     if (selectedModifiers.inmunosuprimido) finalSymptoms.push('Modifier: Inmunosuprimido');
     if (selectedModifiers.oncologico) finalSymptoms.push('Modifier: Paciente oncológico');
+
+    // Glasgow ya validado (missingRequired vacío): las tres subescalas tienen valor. El total se
+    // recalcula aquí para no depender de que el efecto que lo actualiza ya haya corrido.
+    const glasgowScale: GlasgowScale = {
+      eyeOpening: glasgow.eyeOpening!,
+      verbalResponse: glasgow.verbalResponse!,
+      motorResponse: glasgow.motorResponse!,
+      total: glasgow.eyeOpening! + glasgow.verbalResponse! + glasgow.motorResponse!,
+    };
 
     const cleanVitals: VitalSigns = {
       heartRate: vitals.heartRate !== '' ? Number(vitals.heartRate) : 0,
@@ -862,11 +968,13 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
       symptoms: patientInfo.symptoms,
       currentIllness: patientInfo.currentIllness,
       vitals: cleanVitals,
-      glasgow,
+      glasgow: glasgowScale,
       checklist: {} as any,
       selectedSymptoms: finalSymptoms,
       suggestedEsiLevel: suggestedLevel,
       finalEsiLevel: finalLevel,
+      aiLevel: aiTriageResponse?.aiLevel ?? null,
+      aiModelUsed: aiTriageResponse?._metrics?.modelUsed ?? null,
       overrideReason: overrideReason || "Concordancia con Algoritmo",
       triageTimestamp: Date.now(),
       estimatedAttentionTime: addMinutes(new Date(), getAttentionTime(finalLevel)).getTime(),
@@ -877,44 +985,30 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
 
     try {
       const t0_db = performance.now();
-      const dataHash = await generateHash(newPatientData);
 
-      let dbMetrics: any = null;
-      if (signingMode === 'invisible') {
-        setStatus('MINING');
-        setStatusMsg("Guardando de forma segura en el expediente clínico...");
-        
-        const savedRec: any = await dbService.insertRecordInvisible(newPatientData, walletAddress);
-        dbMetrics = savedRec?._metrics;
-      } else {
-        setStatus('MINING');
-        setStatusMsg("Guardando registro en red segura...");
-
-        const logicSignature = isCorrectionMode
-          ? `CORRECTION:${correctionReason.substring(0, 10)}`
-          : isReEvaluationMode
-          ? `RE_EVAL:${correctionReason.substring(0, 10)}`
-          : (suggestedLevel === finalLevel ? "ALGO_MATCH" : "MD_OVERRIDE");
-
-        const tx = await web3Service.registerTriage(patientInfo.cedula, dataHash, finalLevel, logicSignature);
-        const txHash = tx.hash;
-
-        setStatusMsg("Guardando en Base de Datos...");
-        const savedRec: any = await dbService.insertRecord(newPatientData, walletAddress, txHash);
-        dbMetrics = savedRec?._metrics;
-      }
+      // El servidor calcula el hash, lo firma con el Relayer, lo ancla en Polygon y guarda en MongoDB
+      setStatus('MINING');
+      setStatusMsg("Guardando de forma segura en el expediente clínico...");
+      const savedRec: any = await dbService.insertRecordInvisible(newPatientData, walletAddress);
+      const dbMetrics: any = savedRec?._metrics;
 
       const t1_db = performance.now();
       const realDbTimeSec = dbMetrics?.t_db_ms ? Number((dbMetrics.t_db_ms / 1000).toFixed(3)) : Number(((t1_db - t0_db) / 1000).toFixed(3));
-      const realBcTimeSec = dbMetrics?.t_bc_ms ? Number((dbMetrics.t_bc_ms / 1000).toFixed(2)) : 3.2;
-      const realAiTimeSec = (aiTriageResponse as any)?._metrics?.gemini_ms ? Number(((aiTriageResponse as any)._metrics.gemini_ms / 1000).toFixed(2)) : 3.5;
-      
-      const isBleActive = isScanning;
-      const iotTimeVal = isBleActive ? 1.45 : null;
-      const totalUiRoundtripSec = Number(((iotTimeVal || 0) + realAiTimeSec + realDbTimeSec).toFixed(2));
+      // Sin métrica real (p. ej. no se ejecutó el análisis IA o el relayer no reportó tiempos) → null,
+      // nunca un valor fijo. Las estadísticas excluyen los null de su fase.
+      const realBcTimeSec = dbMetrics?.t_bc_ms ? Number((dbMetrics.t_bc_ms / 1000).toFixed(2)) : null;
+      const realAiTimeSec = (aiTriageResponse as any)?._metrics?.gemini_ms ? Number(((aiTriageResponse as any)._metrics.gemini_ms / 1000).toFixed(2)) : null;
+
+      const isBleActive = isBleConnected;
+      // t_iot medido en la sesión BLE; null si no hubo lectura válida (no se usa un valor fijo)
+      const iotTimeVal = isBleActive ? bleAcquisitionSec : null;
+      // t_ui: tiempo real que espera el médico al guardar, medido en el cliente desde t0_db (inicio del
+      // guardado: POST al servidor) hasta t1_db (respuesta del servidor con el registro ya anclado en
+      // Polygon y guardado en MongoDB). No es una suma de fases.
+      const totalUiRoundtripSec = Number(((t1_db - t0_db) / 1000).toFixed(2));
 
       // Guardar telemetría real en MongoDB y LocalStorage
-      await telemetryService.saveLog({
+      const telemetryResult = await telemetryService.saveLog({
         patientName: patientInfo.name || 'Paciente Triage',
         t_iot: iotTimeVal,
         isBleConnected: isBleActive,
@@ -922,8 +1016,23 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         t_db_hash: realDbTimeSec,
         t_ui: totalUiRoundtripSec,
         t_blockchain: realBcTimeSec,
+        // Tiempos criptográficos del servidor en ms (typeof conserva un 0 legítimo; ausente → null)
+        t_hash_ms: typeof dbMetrics?.t_hash_ms === 'number' ? dbMetrics.t_hash_ms : null,
+        t_firma_ms: typeof dbMetrics?.t_firma_ms === 'number' ? dbMetrics.t_firma_ms : null,
+        // Costos: gas y precio del recibo de la transacción; tokens y modelos probados del análisis IA
+        // de este triage (null si no se ejecutó). Ausente → null, sin valores de relleno
+        gas_used: typeof dbMetrics?.gasUsed === 'string' ? Number(dbMetrics.gasUsed) : null,
+        effective_gas_price_wei: typeof dbMetrics?.effectiveGasPrice === 'string' ? dbMetrics.effectiveGasPrice : null,
+        cost_pol: typeof dbMetrics?.costPol === 'string' ? dbMetrics.costPol : null,
+        ai_tokens_in: aiTriageResponse?._metrics?.tokensIn ?? null,
+        ai_tokens_out: aiTriageResponse?._metrics?.tokensOut ?? null,
+        ai_models_tried: aiTriageResponse?._metrics?.modelsTried ?? null,
         isRealMeasurement: true
       });
+      // El registro clínico ya quedó guardado; solo falló la telemetría. Se avisa sin abortar el flujo.
+      if (!telemetryResult.persisted) {
+        alert(`⚠️ El triage se guardó correctamente, pero la medición de telemetría NO se registró en MongoDB (${telemetryResult.error}). Quedó solo en la caché local de este navegador.`);
+      }
 
       if (selectedPendingId) {
         try { await dbService.removePendingPatient(selectedPendingId); }
@@ -960,7 +1069,8 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         </div>
 
         {/* PACIENTES EN ESPERA */}
-        {!isCorrectionMode && pendingPatients.length > 0 && (
+        {/* Oculta también en re-evaluación: si no, el paciente elegido heredaría el parentRecordHash del registro re-evaluado */}
+        {!initialData && pendingPatients.length > 0 && (
           <section className={`${t.card} rounded-xl p-5 border shadow-sm border-indigo-500/30 bg-indigo-500/5`}>
             <div className="flex items-center gap-2 mb-4">
               <Users className="w-5 h-5 text-indigo-500" />
@@ -969,7 +1079,9 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
             <div className="flex overflow-x-auto gap-3 pb-2 scrollbar-none">
               {pendingPatients.map(p => (
                 <button key={p.id} onClick={() => selectPendingPatient(p)}
-                  className={`flex-shrink-0 text-left p-3 rounded-xl border transition-all min-w-[200px] ${
+                  // No se cambia de paciente mientras se guarda o se conecta el sensor BLE
+                  disabled={status === 'MINING' || status === 'SUCCESS' || isScanning}
+                  className={`flex-shrink-0 text-left p-3 rounded-xl border transition-all min-w-[200px] disabled:opacity-50 disabled:cursor-not-allowed ${
                     selectedPendingId === p.id ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' : `${t.iconBg} ${t.border} ${t.text} hover:border-indigo-400`
                   }`} type="button">
                   <div className="flex justify-between items-start mb-1">
@@ -1100,8 +1212,44 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         <section className={`${t.card} rounded-xl p-5 border shadow-sm`}>
           <div className="flex justify-between items-center mb-4 flex-wrap gap-2">
             <h2 className={`${t.heading} text-sm font-bold uppercase tracking-wider opacity-80`}>2. Signos Vitales</h2>
-            <div className="flex gap-2">
-              <button 
+            <div className="flex gap-2 items-center flex-wrap">
+              {isBleConnected && bleSensorState === 'esperando_dedo' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/30">
+                  <span className="w-2 h-2 rounded-full bg-amber-500 inline-block" />
+                  Esperando dedo · colóquelo en el sensor
+                </span>
+              )}
+              {isBleConnected && bleSensorState === 'midiendo' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/30">
+                  <RefreshCw className="w-3 h-3 animate-spin" />
+                  Midiendo…{bleElapsedSec !== null && ` ${bleElapsedSec.toFixed(1)} s`}
+                </span>
+              )}
+              {isBleConnected && bleSensorState === 'senal_deficiente' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-orange-500/10 text-orange-600 dark:text-orange-400 border border-orange-500/30">
+                  <AlertTriangle className="w-3 h-3" />
+                  Señal deficiente · mantenga el dedo quieto{bleElapsedSec !== null && ` (${bleElapsedSec.toFixed(1)} s)`}
+                </span>
+              )}
+              {isBleConnected && bleSensorState === 'estable' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30">
+                  <CheckCircle className="w-3 h-3" />
+                  Captura estable{bleAcquisitionSec !== null && ` · ${bleAcquisitionSec.toFixed(2)} s`}
+                </span>
+              )}
+              {isBleConnected && bleSensorState === 'incompleto' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-slate-500/10 text-slate-600 dark:text-slate-300 border border-slate-500/30">
+                  <FileWarning className="w-3 h-3" />
+                  Incompleto · dedo retirado antes de estabilizar
+                </span>
+              )}
+              {isBleConnected && bleSensorState === 'timeout' && (
+                <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-bold bg-red-500/10 text-red-600 dark:text-red-400 border border-red-500/30">
+                  <AlertTriangle className="w-3 h-3" />
+                  Timeout (60 s) sin estabilizar · retire y vuelva a colocar el dedo
+                </span>
+              )}
+              <button
                 onClick={handleSetAllVitalsToZero}
                 className="flex items-center gap-1.5 bg-red-500/10 text-red-500 border border-red-500/20 px-3 py-1.5 rounded-md text-xs font-bold hover:bg-red-500/20 transition-colors" 
                 type="button"
@@ -1109,9 +1257,18 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
                 🚨 {(vitals.heartRate === 0 && vitals.bloodPressureSys === 0) ? 'Restablecer Vacíos' : 'Sin Signos Vitales'}
               </button>
               <button onClick={handleIoTConnect} disabled={isScanning}
-                className="flex items-center gap-1.5 bg-blue-500/10 text-blue-500 border border-blue-500/20 px-3 py-1.5 rounded-md text-xs font-bold hover:bg-blue-500/20 transition-colors" type="button">
-                {isScanning ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Bluetooth className="w-3.5 h-3.5" />}
-                {isScanning ? 'Leyendo...' : 'Sensor IoT'}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-bold transition-all border ${
+                  isBleConnected 
+                    ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border-emerald-500/40 hover:bg-emerald-500/25' 
+                    : 'bg-blue-500/10 text-blue-500 border-blue-500/20 hover:bg-blue-500/20'
+                }`} 
+                type="button">
+                {isScanning ? (
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Bluetooth className="w-3.5 h-3.5" />
+                )}
+                {isScanning ? 'Buscando ESP32...' : isBleConnected ? 'ESP32 Conectado · Desconectar' : 'Sensor IoT (BLE)'}
               </button>
             </div>
           </div>
@@ -1215,9 +1372,14 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
             <h2 className={`${t.heading} text-sm font-bold uppercase tracking-wider opacity-80`}>3. Escala de Glasgow (GCS)</h2>
             <div className={`flex items-center gap-2 ${t.iconBg} px-3 py-1 rounded-md border ${t.border}`}>
               <span className={`text-xs ${t.muted} font-medium`}>Total:</span>
-              <span className={`text-lg font-black ${glasgow.total <= 8 ? 'text-red-500' : glasgow.total <= 13 ? 'text-orange-500' : 'text-green-500'}`}>
-                {glasgow.total}
-              </span>
+              {glasgow.total === null ? (
+                // Sin valor por defecto: hasta que se elijan las tres subescalas no hay total
+                <span className={`text-sm font-bold ${t.muted}`}>— <span className="text-[10px] font-medium">(sin evaluar)</span></span>
+              ) : (
+                <span className={`text-lg font-black ${glasgow.total <= 8 ? 'text-red-500' : glasgow.total <= 13 ? 'text-orange-500' : 'text-green-500'}`}>
+                  {glasgow.total}
+                </span>
+              )}
             </div>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -1285,11 +1447,12 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
             
             <button
               onClick={handleAnalyzeSymptomsWithAI}
-              disabled={isAiAnalyzing || (!patientInfo.symptoms.trim() && !patientInfo.currentIllness.trim())}
+              // Exige los dos campos de relato (misma regla que el servidor en /api/triage/analyze)
+              disabled={isAiAnalyzing || missingNarrative.length > 0}
               className={`px-4 py-2 rounded-xl text-xs font-bold font-mono transition-all flex items-center gap-2 shadow-sm ${
                 isAiAnalyzing 
                   ? 'bg-blue-600/25 text-blue-400 border border-blue-500/30 cursor-not-allowed animate-pulse'
-                  : (!patientInfo.symptoms.trim() && !patientInfo.currentIllness.trim())
+                  : missingNarrative.length > 0
                   ? (isDarkMode 
                       ? 'bg-slate-900 border border-slate-800 text-slate-600 cursor-not-allowed' 
                       : 'bg-slate-100 border border-slate-200 text-slate-400 cursor-not-allowed')
@@ -1310,6 +1473,11 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
               )}
             </button>
           </div>
+          {missingNarrative.length > 0 && !isAiAnalyzing && (
+            <p className="-mt-2 mb-3 text-[11px] font-semibold text-amber-600 dark:text-amber-400 text-right">
+              Para analizar con IA complete: {missingNarrative.join(' y ')}
+            </p>
+          )}
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             {/* Input display context of the analysis text */}
@@ -1499,18 +1667,32 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
             )}
           </div>
 
-          <button onClick={handleSubmit} disabled={status !== 'IDLE'}
+          {/* Tras un ERROR el botón vuelve a habilitarse para reintentar; el formulario conserva los datos */}
+          {/* Campos obligatorios pendientes: el botón queda deshabilitado y se listan aquí (misma regla que el servidor) */}
+          {missingRequired.length > 0 && (status === 'IDLE' || status === 'ERROR') && (
+            <div className="mb-3 p-3 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-700 dark:text-amber-300 text-xs">
+              <p className="font-bold flex items-center gap-1.5">
+                <AlertTriangle className="w-4 h-4 shrink-0" /> Campos obligatorios pendientes para guardar:
+              </p>
+              <ul className="mt-1.5 ml-6 list-disc space-y-0.5">
+                {missingRequired.map(label => <li key={label}>{label}</li>)}
+              </ul>
+            </div>
+          )}
+          <button onClick={handleSubmit} disabled={(status !== 'IDLE' && status !== 'ERROR') || missingRequired.length > 0}
             className={`w-full py-3.5 rounded-lg font-bold text-sm flex items-center justify-center gap-2 transition-all ${
-              status !== 'IDLE'
+              (status !== 'IDLE' && status !== 'ERROR') || missingRequired.length > 0
                 ? `${isDarkMode ? 'bg-slate-800 text-slate-500' : 'bg-slate-200 text-slate-400'} cursor-not-allowed`
                 : 'bg-blue-600 hover:bg-blue-500 text-white shadow-md'
             }`}>
             {status === 'IDLE'    && <><Save className="w-4 h-4" /> Guardar Triage</>}
-            {status === 'HASHING' && <><RefreshCw className="w-4 h-4 animate-spin" /> Procesando Triage...</>}
             {status === 'MINING'  && <><RefreshCw className="w-4 h-4 animate-spin" /> Guardando Triage...</>}
             {status === 'SUCCESS' && <span className="text-green-400">✅ ¡Guardado Exitoso!</span>}
-            {status === 'ERROR'   && <span className="text-red-400">❌ Error: {statusMsg}</span>}
+            {status === 'ERROR'   && <><RefreshCw className="w-4 h-4" /> Reintentar</>}
           </button>
+          {status === 'ERROR' && (
+            <p className="text-center text-xs text-red-500 mt-2 font-semibold">❌ Error: {statusMsg}</p>
+          )}
           {statusMsg && status !== 'SUCCESS' && status !== 'ERROR' && (
             <p className={`text-center text-[10px] ${t.muted} mt-2 font-mono animate-pulse`}>{statusMsg}</p>
           )}

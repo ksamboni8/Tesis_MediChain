@@ -45,6 +45,10 @@ const PatientDataSchema = new mongoose.Schema({
   suggestedEsiLevel: { type: Number, required: true },
   finalEsiLevel: { type: Number, required: true },
   overrideReason: { type: String },
+
+  // Resultado de la IA en este triage (null si no se ejecutó). aiModelUsed no entra en el hash
+  aiLevel: { type: Number, min: 1, max: 5, default: null },
+  aiModelUsed: { type: String, default: null },
   
   // Tiempos de atención y métricas de rendimiento
   triageTimestamp: { type: Number, required: true },

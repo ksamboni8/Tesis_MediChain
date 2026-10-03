@@ -5,10 +5,10 @@
   "main": "index.tsx",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "tsc && vite build",
+    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "start": "node dist/server.cjs",
     "lint": "tsc --noEmit",
-    "preview": "vite preview",
-    "start": "node server.ts"
+    "preview": "vite preview"
   },
   "dependencies": {
     "@google/genai": "^2.8.0",
@@ -18,7 +18,6 @@
     "ethers": "^6.13.2",
     "express": "^4.18.2",
     "lucide-react": "^0.344.0",
-    "mongodb-memory-server": "^11.0.1",
     "mongoose": "^7.6.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1"
@@ -29,6 +28,7 @@
     "@types/react": "^18.2.66",
     "@types/react-dom": "^18.2.22",
     "@vitejs/plugin-react": "^4.2.1",
+    "esbuild": "^0.21.5",
     "tsx": "^4.21.0",
     "typescript": "^5.2.2",
     "vite": "^5.1.4"
