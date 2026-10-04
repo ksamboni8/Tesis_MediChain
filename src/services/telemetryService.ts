@@ -1,4 +1,5 @@
 import type { TelemetryLog, MetricSummary, MsMetricSummary, CostMetricSummary } from '../types';
+import { apiFetch } from './apiClient';
 
 const TELEMETRY_STORAGE_KEY = 'medichain_telemetry_logs_v1';
 
@@ -19,7 +20,7 @@ export const telemetryService = {
   // Get stored logs from MongoDB (backed by API, fallback to localStorage)
   async getLogs(): Promise<TelemetryLog[]> {
     try {
-      const res = await fetch('/api/telemetry/logs');
+      const res = await apiFetch('/api/telemetry/logs');
       if (res.ok) {
         const logs: TelemetryLog[] = await res.json();
         localStorage.setItem(TELEMETRY_STORAGE_KEY, JSON.stringify(logs));
@@ -58,7 +59,7 @@ export const telemetryService = {
 
     // Persist in MongoDB backend
     try {
-      const res = await fetch('/api/telemetry/logs', {
+      const res = await apiFetch('/api/telemetry/logs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(newEntry)
@@ -81,7 +82,7 @@ export const telemetryService = {
   async clearLogs(): Promise<void> {
     localStorage.removeItem(TELEMETRY_STORAGE_KEY);
     try {
-      await fetch('/api/telemetry/logs', { method: 'DELETE' });
+      await apiFetch('/api/telemetry/logs', { method: 'DELETE' });
     } catch (e) {
       console.error("Error clearing telemetry logs from MongoDB:", e);
     }
@@ -359,7 +360,7 @@ La arquitectura implementa un \\textit{Relayer} que firma las transacciones con 
       let aiErrorStr = '';
 
       try {
-        const res = await fetch('/api/triage/analyze', {
+        const res = await apiFetch('/api/triage/analyze', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -416,7 +417,7 @@ La arquitectura implementa un \\textit{Relayer} que firma las transacciones con 
       let dbSuccess = false;
 
       try {
-        const dbRes = await fetch('/api/records/invisible', {
+        const dbRes = await apiFetch('/api/records/invisible', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ patientData: mockPatient, doctorWallet: '0x1234' })
@@ -472,7 +473,7 @@ La arquitectura implementa un \\textit{Relayer} que firma las transacciones con 
     // Persistir lote de mediciones reales en MongoDB
     if (newLogs.length > 0) {
       try {
-        await fetch('/api/telemetry/batch', {
+        await apiFetch('/api/telemetry/batch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ logs: newLogs })

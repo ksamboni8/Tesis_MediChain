@@ -6,6 +6,7 @@ import { AdminConsole } from './views/AdminConsole';
 import { AdmissionOffice } from './views/AdmissionOffice';
 import { BenchmarkConsole } from './views/BenchmarkConsole';
 import { UserRole, HybridRecord } from './types';
+import { logoutSession, SESSION_EXPIRED_EVENT } from './services/apiClient';
 import { Shield, LogOut, PlusCircle, Database, FileClock, UserPlus, BarChart3 } from 'lucide-react';
 
 const App: React.FC = () => {
@@ -39,12 +40,23 @@ const App: React.FC = () => {
   };
 
   const handleLogout = () => {
+    logoutSession();
     setUserRole(UserRole.NONE);
     setWalletAddress('');
     setRecordToCorrect(null);
     setIsReEvaluation(false);
     setCurrentView('triage'); // Reset default
   };
+
+  // Si el servidor rechaza el token (sesión vencida o servidor reiniciado), se vuelve a la pantalla de inicio
+  useEffect(() => {
+    const onExpired = () => {
+      alert('Su sesión expiró. Vuelva a iniciar sesión con su wallet.');
+      handleLogout();
+    };
+    window.addEventListener(SESSION_EXPIRED_EVENT, onExpired);
+    return () => window.removeEventListener(SESSION_EXPIRED_EVENT, onExpired);
+  }, []);
 
   const handleStartCorrection = (record: HybridRecord) => {
     setRecordToCorrect(record);

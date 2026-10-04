@@ -16,6 +16,8 @@ import { ethers } from 'ethers';
 import { performance } from 'perf_hooks';
 import { serializeForHash } from './src/shared/hashPayload';
 import { missingNarrativeFields, missingRequiredTriageFields } from './src/shared/requiredFields';
+import { isAdmissionWallet } from './src/shared/roles';
+import { AuthError, Role, createLoginMessage, login, logout, requireRole, sessionOf } from './server/auth';
 
 const app = express();
 const PORT = 3000;
@@ -116,58 +118,32 @@ async function verifyDoctorAuthorization(doctorAddress: string): Promise<DoctorA
   }
 }
 
-// Resultado de la verificación on-chain de ADMIN: mismo esquema fail-closed que DoctorAuthResult,
-// pero ADMIN se determina exclusivamente por ser el `owner()` del contrato (no hay mapping `admins`).
-type AdminAuthResult = { authorized: boolean; reason: 'OK' | 'NOT_OWNER' | 'RPC_NOT_CONFIGURED' | 'VERIFICATION_FAILED' };
-
-// Verifica en la Blockchain (lectura, sin gas) que la wallet sea el `owner()` del contrato (ADMIN).
-// Misma política fail-closed que verifyDoctorAuthorization: cualquier incapacidad de completar la
-// verificación (RPC no configurado, o error en la llamada al contrato) se trata como NO autorizado.
-async function verifyAdminAuthorization(adminAddress: string): Promise<AdminAuthResult> {
+// Roles de una cuenta, consultados en el contrato (lectura, sin gas) al iniciar sesión: DOCTOR si está
+// en el mapping `doctors`, ADMIN si es el `owner()`, AUDITOR si está en `auditors`; ADMISSION por la lista
+// compartida (src/shared/roles.ts). Una cuenta puede tener varios roles. Fail-closed: si el contrato no
+// se puede consultar, se lanza el error y no se abre la sesión.
+async function resolveRoles(address: string): Promise<Role[]> {
+  const roles: Role[] = [];
+  if (isAdmissionWallet(address)) roles.push('ADMISSION');
   const rpcUrl = process.env.POLYGON_RPC_URL;
-  const contractAddress = "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A";
-
-  if (!rpcUrl) {
-    console.error('[AUTH] POLYGON_RPC_URL no configurado: no se puede verificar autorización on-chain del admin (fail-closed, rechazando).');
-    return { authorized: false, reason: 'RPC_NOT_CONFIGURED' };
-  }
-
+  if (!rpcUrl) throw new AuthError(503, 'POLYGON_RPC_URL no está configurado: no se pueden verificar los roles en el contrato');
   try {
-    const amoyNetwork = { chainId: 80002, name: 'polygon-amoy' };
-    const provider = new ethers.JsonRpcProvider(rpcUrl, amoyNetwork, { staticNetwork: true });
-    const abi = ["function owner() external view returns (address)"];
-    const readOnlyContract = new ethers.Contract(contractAddress, abi, provider);
-
-    const ownerAddress = await readOnlyContract.owner();
-    const authorized = ownerAddress.toLowerCase() === adminAddress.toLowerCase();
-    return { authorized, reason: authorized ? 'OK' : 'NOT_OWNER' };
+    const provider = new ethers.JsonRpcProvider(rpcUrl, { chainId: 80002, name: 'polygon-amoy' }, { staticNetwork: true });
+    const contract = new ethers.Contract("0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A", [
+      "function isDoctor(address _user) external view returns (bool)",
+      "function isAuditor(address _user) external view returns (bool)",
+      "function owner() external view returns (address)"
+    ], provider);
+    const [isDoctor, isAuditor, owner] = await Promise.all([contract.isDoctor(address), contract.isAuditor(address), contract.owner()]);
+    if (isDoctor) roles.push('DOCTOR');
+    if (owner.toLowerCase() === address.toLowerCase()) roles.push('ADMIN');
+    if (isAuditor) roles.push('AUDITOR');
   } catch (err: any) {
-    console.error('[AUTH] Error verificando autorización on-chain del admin (fail-closed, rechazando):', err.message || err);
-    return { authorized: false, reason: 'VERIFICATION_FAILED' };
+    console.error('[AUTH] No se pudieron consultar los roles en el contrato (fail-closed):', err.message || err);
+    throw new AuthError(503, 'No se pudieron verificar los roles en el contrato inteligente');
   }
+  return roles;
 }
-
-// RNF: Middleware — rechaza la petición si quien la envía (`req.body.adminWallet`) no es el owner
-// del contrato. Va DESPUÉS de blockInProduction (que ya protege esta ruta por entorno) y ANTES de
-// ensureLocalMongo, para no gastar una consulta a Mongo si la autorización ya falla.
-const verifyAdminAccess = async (req: Request, res: Response, next: any) => {
-  const adminWallet = req.body?.adminWallet;
-  if (!adminWallet) {
-    return res.status(400).json({ error: "Missing adminWallet in request body for authorization check" });
-  }
-
-  const authResult = await verifyAdminAuthorization(adminWallet);
-  if (!authResult.authorized) {
-    if (authResult.reason === 'NOT_OWNER') {
-      return res.status(403).json({ error: 'Forbidden: wallet is not the contract owner (ADMIN)' });
-    }
-    return res.status(503).json({
-      error: 'Service Unavailable: could not verify on-chain admin authorization',
-      reason: authResult.reason
-    });
-  }
-  next();
-};
 
 // Intervalo de sondeo del proveedor RPC para tx.wait(). ethers v6 usa 4000 ms por defecto, lo que
 // cuantiza t_minado en saltos de ~4 s. El error de medición es de hasta un intervalo de sondeo, así que
@@ -236,6 +212,31 @@ async function registerTriageBackendDetails(patientId: string, dataHash: string,
 app.use(cors());
 app.use(express.json());
 
+// ─────────────────────────────────────────────────────────────
+// AUTENTICACIÓN (server/auth.ts): firma de un mensaje con la wallet → token de sesión
+// ─────────────────────────────────────────────────────────────
+app.get('/api/auth/nonce', (req: Request, res: Response) => {
+  try {
+    res.json({ message: createLoginMessage(String(req.query.address || '')) });
+  } catch (err: any) {
+    res.status(err instanceof AuthError ? err.status : 500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/login', async (req: Request, res: Response) => {
+  try {
+    const { address, signature } = req.body || {};
+    res.json(await login(address, signature, resolveRoles));
+  } catch (err: any) {
+    res.status(err instanceof AuthError ? err.status : 500).json({ error: err.message });
+  }
+});
+
+app.post('/api/auth/logout', (req: Request, res: Response) => {
+  logout(req);
+  res.json({ success: true });
+});
+
 let aiClient: GoogleGenAI | null = null;
 function getGeminiClient() {
   if (!aiClient) {
@@ -258,7 +259,7 @@ function getGeminiClient() {
 // --- ROUTES ---
 
 // AI Symptoms Analyzer
-app.post('/api/triage/analyze', async (req: Request, res: Response) => {
+app.post('/api/triage/analyze', requireRole('DOCTOR', 'ADMIN'), async (req: Request, res: Response) => {
   const t_ai_start = performance.now();
   try {
     const { symptoms, currentIllness, patientInfo, vitals, gcsTotal, hasShock, shockType, selectedModifiers } = req.body;
@@ -501,7 +502,7 @@ const blockInProduction = (req: Request, res: Response, next: any) => {
 };
 
 // 1.1 Create a new Triage Record with Invisible Backend Signing (Meta-Transactions / Relayer approach)
-app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: Response) => {
+app.post('/api/records/invisible', requireRole('DOCTOR', 'ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const { patientData, doctorWallet } = req.body;
     
@@ -556,6 +557,11 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
     const doctorId = patientData.doctorId;
     if (!doctorId) {
       return res.status(400).json({ error: "Missing patientData.doctorId for authorization check" });
+    }
+    // El médico del registro debe ser quien inició la sesión (firmó con esa wallet): ya no basta con
+    // escribir en la petición la dirección de otro médico registrado.
+    if (String(doctorId).toLowerCase() !== sessionOf(req).address.toLowerCase()) {
+      return res.status(403).json({ error: 'Forbidden: patientData.doctorId no corresponde a la wallet de la sesión' });
     }
     const authResult = await verifyDoctorAuthorization(doctorId);
     if (!authResult.authorized) {
@@ -639,7 +645,7 @@ app.post('/api/records/invisible', ensureLocalMongo, async (req: Request, res: R
 });
 
 // 2. Get All Records (For Auditor View)
-app.get('/api/records', ensureLocalMongo, async (req: Request, res: Response) => {
+app.get('/api/records', requireRole('DOCTOR', 'AUDITOR', 'ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const records = await Record.find().sort({ createdAt: -1 });
     res.json(records);
@@ -649,7 +655,7 @@ app.get('/api/records', ensureLocalMongo, async (req: Request, res: Response) =>
 });
 
 // 3. Mark as Attended (Update attentionTimestamp)
-app.patch('/api/records/:id/attend', ensureLocalMongo, async (req: Request, res: Response) => {
+app.patch('/api/records/:id/attend', requireRole('DOCTOR'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
     const { attentionTimestamp } = req.body;
@@ -669,10 +675,11 @@ app.patch('/api/records/:id/attend', ensureLocalMongo, async (req: Request, res:
 });
 
 // 4. ADMIN BACKDOOR (The Hack)
-app.patch('/api/hack/:id', blockInProduction, verifyAdminAccess, ensureLocalMongo, async (req: Request, res: Response) => {
+app.patch('/api/hack/:id', blockInProduction, requireRole('ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const { id } = req.params; // MongoDB _id
-    const { adminWallet, ...hackedData } = req.body; // adminWallet ya fue validado por verifyAdminAccess; el resto es la data del paciente
+    // La sesión ya se verificó (requireRole('ADMIN')); adminWallet, si viene de un cliente anterior, se ignora
+    const { adminWallet: _ignored, ...hackedData } = req.body;
 
     const record = await Record.findById(id);
     if (!record) return res.status(404).json({ error: 'Record not found' });
@@ -694,7 +701,7 @@ app.patch('/api/hack/:id', blockInProduction, verifyAdminAccess, ensureLocalMong
 });
 
 // 5. ADMISSION: Add patient to waiting list
-app.post('/api/pending-patients', ensureLocalMongo, async (req: Request, res: Response) => {
+app.post('/api/pending-patients', requireRole('ADMISSION'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const { cedula, name, age, gender, eps } = req.body;
     const newPending = new PendingPatient({ cedula, name, age, gender, eps });
@@ -706,7 +713,7 @@ app.post('/api/pending-patients', ensureLocalMongo, async (req: Request, res: Re
 });
 
 // 6. WAITING LIST: Get all pending patients
-app.get('/api/pending-patients', ensureLocalMongo, async (req: Request, res: Response) => {
+app.get('/api/pending-patients', requireRole('ADMISSION', 'DOCTOR'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const pending = await PendingPatient.find().sort({ admissionTimestamp: 1 });
     res.json(pending);
@@ -716,7 +723,7 @@ app.get('/api/pending-patients', ensureLocalMongo, async (req: Request, res: Res
 });
 
 // 7. REMOVE: After triage, remove from list
-app.delete('/api/pending-patients/:id', ensureLocalMongo, async (req: Request, res: Response) => {
+app.delete('/api/pending-patients/:id', requireRole('ADMISSION', 'DOCTOR'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     await PendingPatient.findByIdAndDelete(req.params.id);
     res.json({ success: true });
@@ -742,7 +749,7 @@ function telemetryCostFields(logData: any) {
 }
 
 // 8. TELEMETRY LOGS (PERSISTED IN MONGODB FOR THESIS REPRODUCIBILITY)
-app.get('/api/telemetry/logs', ensureLocalMongo, async (req: Request, res: Response) => {
+app.get('/api/telemetry/logs', requireRole('ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const logs = await TelemetryLog.find().sort({ timestamp: -1 }).limit(500);
     const mapped = logs.map(doc => ({
@@ -767,7 +774,7 @@ app.get('/api/telemetry/logs', ensureLocalMongo, async (req: Request, res: Respo
   }
 });
 
-app.post('/api/telemetry/logs', ensureLocalMongo, async (req: Request, res: Response) => {
+app.post('/api/telemetry/logs', requireRole('DOCTOR', 'ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const logData = req.body;
     const doc = new TelemetryLog({
@@ -793,7 +800,7 @@ app.post('/api/telemetry/logs', ensureLocalMongo, async (req: Request, res: Resp
   }
 });
 
-app.post('/api/telemetry/batch', ensureLocalMongo, async (req: Request, res: Response) => {
+app.post('/api/telemetry/batch', requireRole('ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     const logsData: any[] = req.body.logs || [];
     const docs = logsData.map(logData => ({
@@ -819,7 +826,7 @@ app.post('/api/telemetry/batch', ensureLocalMongo, async (req: Request, res: Res
   }
 });
 
-app.delete('/api/telemetry/logs', ensureLocalMongo, async (req: Request, res: Response) => {
+app.delete('/api/telemetry/logs', requireRole('ADMIN'), ensureLocalMongo, async (req: Request, res: Response) => {
   try {
     await TelemetryLog.deleteMany({});
     res.json({ success: true, message: 'All telemetry logs deleted from MongoDB' });
@@ -863,8 +870,11 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`🚀 Server running on http://localhost:${PORT}`);
+  // Por defecto solo acepta conexiones del propio equipo (127.0.0.1). Para abrirlo a la red local hay que
+  // definir HOST=0.0.0.0 de forma explícita en el .env.
+  const HOST = process.env.HOST?.trim() || '127.0.0.1';
+  app.listen(PORT, HOST, () => {
+    console.log(`🚀 Server running on http://${HOST === '127.0.0.1' ? 'localhost' : HOST}:${PORT}`);
   });
 
   // Conectar a base de datos de manera asíncrona sin bloquear el inicio del servidor HTTP

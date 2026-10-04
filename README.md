@@ -60,11 +60,19 @@ la monografía.
 
 ### Qué detecta la auditoría y qué no
 
-Detecta cualquier cambio en un campo incluido en el hash de un registro guardado. No detecta: el
-borrado de un registro, el reemplazo por los datos de otro registro anclado, cambios en
-`attentionTimestamp` o `aiModelUsed` (excluidos del hash), ni un re-anclaje hecho por quien controle
-la clave del Relayer. El servidor verifica que la wallet del médico esté registrada en el contrato,
-pero no que quien hace la petición la controle.
+Cada registro se verifica contra su propia transacción de anclaje (`src/shared/anchorAudit.ts`). Detecta
+la modificación de un campo incluido en el hash, el reemplazo por el contenido de otro registro anclado y
+la eliminación de registros (hashes anclados sin registro). No detecta cambios en `attentionTimestamp` o
+`aiModelUsed` (excluidos del hash), alteraciones previas al anclaje, ni un anclaje hecho por quien
+controle la clave del Relayer o una wallet de médico registrada.
+
+### Autenticación
+
+Al iniciar sesión, el usuario firma con MetaMask un mensaje con un nonce (no es una transacción ni cuesta
+gas). El servidor verifica la firma, consulta sus roles en el contrato y entrega un token de sesión que
+cada petición a la API debe enviar; cada ruta exige su rol (`server/auth.ts`). Al guardar un triage, el
+médico del registro debe ser la wallet de la sesión. Las sesiones viven en memoria: si el servidor se
+reinicia, hay que volver a iniciar sesión.
 
 ## Requisitos
 
@@ -90,6 +98,8 @@ cp .env.example .env   # y completar los valores
 | `PATIENT_SALT` | Sal para seudonimizar la cédula antes de enviarla a la cadena. Obligatoria: sin ella el servidor no ancla registros |
 | `MONGODB_URI` | Opcional; MongoDB local por defecto |
 | `ENABLE_ATTACK_SIMULATION` | Solo pruebas: `true` habilita `PATCH /api/hack/:id` fuera de producción. Por defecto deshabilitada |
+| `HOST` | Opcional; `127.0.0.1` por defecto (solo el propio equipo). `0.0.0.0` abre el servidor a la red local |
+| `ADMIN_PRIVATE_KEY` | Opcional, solo para la prueba de integridad: cuenta owner con la que el script inicia sesión (por defecto, la del Relayer) |
 
 La billetera del Relayer y las de los médicos deben estar autorizadas en el contrato
 (`addDoctor`, desde la cuenta propietaria).
@@ -129,6 +139,7 @@ aparecen en ellos son ficticios.
 
 ```
 server.ts                 API, Relayer, integración con Gemini y blockchain
+server/auth.ts            Inicio de sesión con firma de la wallet y control de acceso por rol
 server/models/            Esquemas Mongoose (Record, PendingPatient, TelemetryLog)
 src/views/                Triage, Admisión, Auditoría, Admin, Benchmark, Login
 src/services/             bluetooth, crypto, database, telemetry, web3

@@ -24,7 +24,8 @@
 //                                                              -> agrega reemplazo y eliminación
 //   npx tsx tests/integrity-attack.test.mts --restore=tests/results/integrity-XXXX.json --yes
 //                                                              -> restaura los valores originales
-// Opcionales: --api=http://localhost:3000/api   ADMIN_WALLET=0x... (por defecto se usa owner() del contrato)
+// Opcionales: --api=http://localhost:3000/api   ADMIN_PRIVATE_KEY=0x... en .env (por defecto se inicia
+// sesión con la wallet del Relayer, que debe ser el owner del contrato)
 import 'dotenv/config';
 import fs from 'fs';
 import path from 'path';
@@ -87,8 +88,33 @@ async function readTxs(hashes: string[]): Promise<Map<string, any>> {
 }
 
 // ---------- API ----------
+// La API exige una sesión (server/auth.ts). El script inicia sesión firmando el mensaje con la wallet
+// de ADMIN_PRIVATE_KEY o, si no está, con la del Relayer; esa cuenta debe ser el owner del contrato
+// para poder usar la ruta de simulación.
+let sessionToken: string | null = null;
+async function authHeaders(): Promise<Record<string, string>> {
+  if (!sessionToken) {
+    const key = process.env.ADMIN_PRIVATE_KEY || process.env.RELAYER_PRIVATE_KEY;
+    if (!key) throw new Error('Defina ADMIN_PRIVATE_KEY o RELAYER_PRIVATE_KEY en .env para iniciar sesión en la API');
+    const wallet = new ethers.Wallet(key);
+    const nonceRes = await fetch(`${API}/auth/nonce?address=${wallet.address}`);
+    const { message, error } = await nonceRes.json();
+    if (!nonceRes.ok) throw new Error(`No se pudo pedir el nonce: ${error}`);
+    const loginRes = await fetch(`${API}/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address: wallet.address, signature: await wallet.signMessage(message) }),
+    });
+    const login = await loginRes.json();
+    if (!loginRes.ok) throw new Error(`Inicio de sesión rechazado: ${login.error}`);
+    if (!login.roles.includes('ADMIN')) throw new Error(`La cuenta ${wallet.address} no es el owner del contrato (roles: ${login.roles.join(', ')})`);
+    sessionToken = login.token;
+  }
+  return { Authorization: `Bearer ${sessionToken}` };
+}
+
 async function getRecords(): Promise<any[]> {
-  const res = await fetch(`${API}/records`);
+  const res = await fetch(`${API}/records`, { headers: await authHeaders() });
   if (!res.ok) throw new Error(`GET /records respondió ${res.status}`);
   return res.json();
 }
@@ -96,7 +122,7 @@ async function getRecords(): Promise<any[]> {
 async function hack(id: string, body: Record<string, unknown>, adminWallet: string) {
   const res = await fetch(`${API}/hack/${id}`, {
     method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(await authHeaders()) },
     body: JSON.stringify({ ...body, adminWallet }),
   });
   const payload = await res.json().catch(() => ({}));
@@ -184,8 +210,10 @@ const MUTATIONS: Array<(pd: any) => Mutation> = [
 // Lee el valor guardado en una ruta "a.b".
 const getPath = (obj: any, p: string) => p.split('.').reduce((o, k) => (o == null ? o : o[k]), obj);
 
+// Dirección que se registra en la evidencia como cuenta administradora (la sesión es la que autoriza)
 async function resolveAdminWallet(): Promise<string> {
-  if (process.env.ADMIN_WALLET) return process.env.ADMIN_WALLET;
+  const key = process.env.ADMIN_PRIVATE_KEY || process.env.RELAYER_PRIVATE_KEY;
+  if (key) return new ethers.Wallet(key).address;
   return String(await contract.owner());
 }
 

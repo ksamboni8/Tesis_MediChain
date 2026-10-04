@@ -2,6 +2,8 @@ import { ethers } from 'ethers';
 import { CONTRACT_ABI, CONTRACT_ADDRESS } from '../config/contract';
 import { UserRole } from '../types';
 import { AnchorTx, readAnchorTx } from '../shared/anchorAudit';
+import { isAdmissionWallet } from '../shared/roles';
+import { loginWithWallet } from './apiClient';
 
 declare global {
   interface Window {
@@ -40,7 +42,14 @@ export class Web3Service {
       this.contract = new ethers.Contract(CONTRACT_ADDRESS, CONTRACT_ABI, this.signer);
 
       // Verificación de Roles
-      return await this.checkUserRole(address);
+      const result = await this.checkUserRole(address);
+
+      // Sesión en el servidor: el usuario firma un mensaje con su wallet (sin gas) y el servidor verifica
+      // la firma y sus roles en el contrato. Sin esta sesión, la API rechaza las peticiones (401).
+      if (result.role !== UserRole.NONE) {
+        await loginWithWallet(this.signer);
+      }
+      return result;
 
     } catch (e: any) {
       console.error("Error conectando wallet:", e);
@@ -54,11 +63,11 @@ export class Web3Service {
       console.log(`[MediChain] Verificando permisos para: ${address}`);
 
       // DOCTOR, AUDITOR y ADMIN se verifican exclusivamente contra el Smart Contract (ver más abajo).
-      // ADMISSION no tiene representación on-chain, así que es el único rol con respaldo por whitelist local.
-      const FALLBACK_ADMISSION = "0xe5c4FE69F92f350226276460D238621c361bACcC"; // Tu cuenta de admisión
+      // ADMISSION no tiene representación on-chain: su lista está en src/shared/roles.ts, la misma que usa
+      // el servidor.
 
-      // 0. ADMISSION no tiene mapping en el Smart Contract: la whitelist local es su único mecanismo.
-      if (lowerAddress === FALLBACK_ADMISSION.toLowerCase()) {
+      // 0. ADMISSION no tiene mapping en el Smart Contract: la lista compartida es su único mecanismo.
+      if (isAdmissionWallet(lowerAddress)) {
           console.log(">> ROL DETECTADO: ADMISSION (Whitelist Local - único mecanismo disponible)");
           return { address, role: UserRole.ADMISSION };
       }

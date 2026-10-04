@@ -1,5 +1,6 @@
 
 import type { HybridRecord, PatientData } from '../types';
+import { apiFetch } from './apiClient';
 
 /**
  * DATABASE SERVICE (REAL API IMPLEMENTATION)
@@ -12,7 +13,7 @@ export const dbService = {
   // POST: Send data to the backend for automatic relayer signing and Polygon Amoy registration
   async insertRecordInvisible(patientData: PatientData, doctorWallet: string): Promise<HybridRecord> {
     try {
-      const response = await fetch(`${API_URL}/records/invisible`, {
+      const response = await apiFetch(`${API_URL}/records/invisible`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ patientData, doctorWallet })
@@ -34,7 +35,7 @@ export const dbService = {
   // GET: Fetch real data from MongoDB
   async getAllRecords(): Promise<HybridRecord[]> {
     try {
-      const response = await fetch(`${API_URL}/records`);
+      const response = await apiFetch(`${API_URL}/records`);
       if (!response.ok) {
         const errData = await response.json().catch(() => ({}));
         throw new Error(errData.message || errData.details || errData.error || 'Failed to fetch records');
@@ -50,7 +51,7 @@ export const dbService = {
   // PATCH: Mark patient as attended (Audit Metric)
   async markAsAttended(mongoId: string): Promise<HybridRecord> {
     try {
-      const response = await fetch(`${API_URL}/records/${mongoId}/attend`, {
+      const response = await apiFetch(`${API_URL}/records/${mongoId}/attend`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ attentionTimestamp: Date.now() })
@@ -70,7 +71,7 @@ export const dbService = {
   // PATCH: Execute the Hack via API
   async directHackUpdate(mongoId: string, newData: Partial<PatientData>, adminWallet: string): Promise<void> {
     try {
-      const response = await fetch(`${API_URL}/hack/${mongoId}`, {
+      const response = await apiFetch(`${API_URL}/hack/${mongoId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...newData, adminWallet })
@@ -88,7 +89,7 @@ export const dbService = {
 
   // ADMISSION METHODS
   async addPendingPatient(data: { cedula: string, name: string, age: number, gender: 'M' | 'F' | 'O', eps: string }) {
-    const response = await fetch(`${API_URL}/pending-patients`, {
+    const response = await apiFetch(`${API_URL}/pending-patients`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data)
@@ -101,7 +102,7 @@ export const dbService = {
   },
 
   async getPendingPatients() {
-    const response = await fetch(`${API_URL}/pending-patients`);
+    const response = await apiFetch(`${API_URL}/pending-patients`);
     if (!response.ok) {
       const errData = await response.json().catch(() => ({}));
       throw new Error(errData.message || errData.details || errData.error || 'Failed to fetch waiting list');
@@ -110,7 +111,7 @@ export const dbService = {
   },
 
   async removePendingPatient(id: string) {
-    const response = await fetch(`${API_URL}/pending-patients/${id}`, {
+    const response = await apiFetch(`${API_URL}/pending-patients/${id}`, {
       method: 'DELETE'
     });
     if (!response.ok) {

@@ -8,6 +8,7 @@ import { dbService } from '../services/databaseService';
 import { telemetryService } from '../services/telemetryService';
 import { missingNarrativeFields, missingRequiredTriageFields } from '../shared/requiredFields';
 import { addMinutes } from 'date-fns';
+import { apiFetch } from '../services/apiClient';
 
 // Glasgow en el formulario: cada subescala es null hasta que el médico elige un valor. No hay
 // valor por defecto (antes 4/5/6 = 15), para que un Glasgow no evaluado no se guarde como normal.
@@ -240,7 +241,7 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         selectedModifiers
       };
 
-      const res = await fetch('/api/triage/analyze', {
+      const res = await apiFetch('/api/triage/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
