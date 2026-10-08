@@ -7,7 +7,7 @@ import { CheckCircle, AlertTriangle, FileSearch, Clock, Hash, FileText, ChevronD
 import { format, differenceInMinutes } from 'date-fns';
 import { HybridRecord, UserRole } from '../types';
 
-import { IntegrityStatus, IntegrityReason, REASON_TEXT, classifyRecords, findUnlinkedAnchors, AuditInput } from '../shared/anchorAudit';
+import { IntegrityStatus, IntegrityReason, REASON_TEXT, classifyRecords, findUnlinkedAnchors, AuditInput, Verdict } from '../shared/anchorAudit';
 
 // Regla de verificación (shared/anchorAudit.ts): VALIDO si la transacción del registro ancló exactamente
 // su hash recalculado; ALTERADO si no; NO_VERIFICADO si no se pudo consultar la cadena o la transacción.
@@ -22,6 +22,8 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
   const [mongoRecords, setMongoRecords] = useState<HybridRecord[]>([]);
   const [validationMap, setValidationMap] = useState<Record<string, IntegrityStatus>>({});
   const [reasonMap, setReasonMap] = useState<Record<string, IntegrityReason>>({});
+  // Re-anclaje: minutos entre el triage y el anclaje, y anclaje original encontrado en la cadena
+  const [reanchorMap, setReanchorMap] = useState<Record<string, Pick<Verdict, 'anchorDelayMin' | 'originalAnchor'>>>({});
   // Hashes anclados sin registro válido: ligados a un registro alterado, o sin ningún registro (eliminación)
   const [unlinked, setUnlinked] = useState<{ linkedToAltered: any[]; withoutRecord: any[] }>({ linkedToAltered: [], withoutRecord: [] });
   const [chainError, setChainError] = useState<string | null>(null);
@@ -73,15 +75,20 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
       for (const rec of dbData) {
         const currentHash = await generateHash(rec.patientData);
         cMap[rec._id] = currentHash;
-        inputs.push({ id: rec._id, recomputedHash: currentHash, transactionHash: rec.transactionHash, storedHash: rec.blockchainHash });
+        inputs.push({ id: rec._id, recomputedHash: currentHash, transactionHash: rec.transactionHash, storedHash: rec.blockchainHash, triageTimestamp: rec.patientData.triageTimestamp });
       }
-      const verdicts = classifyRecords(inputs, anchoredHashes, txs);
+      const verdicts = classifyRecords(inputs, anchoredHashes, txs, chainData);
       const vMap: Record<string, IntegrityStatus> = {};
       const rMap: Record<string, IntegrityReason> = {};
-      verdicts.forEach((v, id) => { vMap[id] = v.status; rMap[id] = v.reason; });
+      const raMap: Record<string, Pick<Verdict, 'anchorDelayMin' | 'originalAnchor'>> = {};
+      verdicts.forEach((v, id) => {
+        vMap[id] = v.status; rMap[id] = v.reason;
+        if (v.anchorDelayMin !== undefined) raMap[id] = { anchorDelayMin: v.anchorDelayMin, originalAnchor: v.originalAnchor };
+      });
 
       setValidationMap(vMap);
       setReasonMap(rMap);
+      setReanchorMap(raMap);
       setCalculatedHashMap(cMap);
       // 5. Hashes anclados sin registro válido (solo si la cadena se leyó completa)
       setUnlinked(anchoredHashes === null
@@ -180,6 +187,8 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
       "Modificado (Override)",
       "Estado Integridad",
       "Motivo",
+      "Retraso del anclaje (min)",
+      "Anclaje original",
       "Hash Blockchain",
       "TxHash"
     ];
@@ -200,6 +209,8 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
         hasOverride ? "SI" : "NO",
         integrity === 'VALIDO' ? "VALIDO" : integrity === 'ALTERADO' ? "ALTERADO" : "NO VERIFICADO",
         reasonMap[rec._id] ?? "SIN_CADENA",
+        reanchorMap[rec._id]?.anchorDelayMin ?? "",
+        reanchorMap[rec._id]?.originalAnchor ? `#${reanchorMap[rec._id].originalAnchor!.id} ${reanchorMap[rec._id].originalAnchor!.dataHash}` : "",
         rec.blockchainHash,
         rec.transactionHash || "N/A"
       ].map(val => `"${val}"`).join(",");
@@ -679,6 +690,21 @@ export const AuditList: React.FC<AuditListProps> = ({ userRole, onCorrectRecord,
                                {reasonMap[rec._id] === 'NO_ANCLADO' || !reasonMap[rec._id]
                                  ? '¡ALERTA DE SEGURIDAD! EL HASH ACTUAL NO ESTÁ ANCLADO EN LA BLOCKCHAIN: LOS DATOS HAN SIDO ALTERADOS'
                                  : `¡ALERTA DE SEGURIDAD! ${REASON_TEXT[reasonMap[rec._id]].toUpperCase()}`}
+                             </div>
+                           )}
+                           {reanchorMap[rec._id] && (
+                             <div className="mt-2 text-[11px] text-red-700 bg-red-50 border border-red-200 rounded p-2 space-y-1">
+                               <div>
+                                 Anclaje de su transacción: <strong>{Math.abs(reanchorMap[rec._id].anchorDelayMin!)} min {reanchorMap[rec._id].anchorDelayMin! >= 0 ? 'después' : 'antes'}</strong> de la hora del triage (en el flujo normal son segundos).
+                               </div>
+                               {reanchorMap[rec._id].originalAnchor ? (
+                                 <div>
+                                   Anclaje original, a la hora del triage: <strong>#{reanchorMap[rec._id].originalAnchor!.id}</strong> · {format(reanchorMap[rec._id].originalAnchor!.timestamp, 'yyyy-MM-dd HH:mm:ss')} · nivel {reanchorMap[rec._id].originalAnchor!.triageLevel} (actual: {d.finalEsiLevel})
+                                   <div className="font-mono break-all">{String(reanchorMap[rec._id].originalAnchor!.dataHash)}</div>
+                                 </div>
+                               ) : (
+                                 <div>No se encontró un anclaje original del mismo paciente a la hora del triage.</div>
+                               )}
                              </div>
                            )}
                            {integrity === 'NO_VERIFICADO' && (

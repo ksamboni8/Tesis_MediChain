@@ -1,0 +1,72 @@
+{
+  "startedAt": "2026-10-04T19:00:56.739Z",
+  "api": "http://localhost:3000/api",
+  "contract": "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A",
+  "attacker": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+  "attackerRole": "médico registrado",
+  "relayer": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+  "recordId": "6ac02ecb0274b009a52517c2",
+  "originalDocument": "{\"_id\":{\"$oid\":\"6ac02ecb0274b009a52517c2\"},\"blockchainHash\":\"763fb48de5b9611572c3790b703e97796896118044b17660b4365648ffbdaec6\",\"blockchainSignature\":\"0x4543f1ae3e165347565f648e9e6e1bd583c31918fd4913eaa1194a504cc0e6ec4b0e5ee8e2f95c706ab8b1a54d7df9477b3e0c7cdf268b5a05f7173196194fc21b\",\"transactionHash\":\"0xee127c7196f95d03defc779e5c9f03da64cbfe8e848856322723413af2e310fe\",\"patientData\":{\"id\":\"8f601d5d-fae9-48b6-b0bf-418f0136bc60\",\"cedula\":\"1098765432\",\"name\":\"Sara vanegas\",\"age\":{\"$numberInt\":\"23\"},\"gender\":\"F\",\"eps\":\"Salud Total\",\"symptoms\":\"Me doblé el pie bajando las escaleras\",\"currentIllness\":\"Paciente femenina de 23 años que ingresa por traumatismo en miembro inferior izquierdo tras sufrir inversión forzada del tobillo hace 2 horas. Presenta dolor localizado en maleolo externo, intensidad 5/10, edema leve y limitación parcial para la marcha. Sin deformidad evidente, pulsos distales presentes y simétricos, sensibilidad conservada.\",\"vitals\":{\"heartRate\":{\"$numberInt\":\"78\"},\"spo2\":{\"$numberInt\":\"99\"},\"temperature\":{\"$numberDouble\":\"36.6\"},\"respiratoryRate\":{\"$numberInt\":\"16\"},\"bloodPressureSys\":{\"$numberInt\":\"118\"},\"bloodPressureDia\":{\"$numberInt\":\"74\"},\"bloodPressureMap\":{\"$numberInt\":\"89\"},\"painLevel\":{\"$numberInt\":\"5\"}},\"glasgow\":{\"eyeOpening\":{\"$numberInt\":\"4\"},\"verbalResponse\":{\"$numberInt\":\"5\"},\"motorResponse\":{\"$numberInt\":\"6\"},\"total\":{\"$numberInt\":\"15\"}},\"selectedSymptoms\":[\"traumatismo en miembro inferior izquierdo\",\"inversión forzada del tobillo\",\"dolor localizado en maleolo externo\",\"edema leve\",\"limitación parcial para la marcha\"],\"suggestedEsiLevel\":{\"$numberInt\":\"4\"},\"finalEsiLevel\":{\"$numberInt\":\"4\"},\"overrideReason\":\"Clasificado por IA: El paciente presenta un esguince leve de tobillo con limitación parcial para la marcha y edema leve, sin deformidad evidente y con signos vitales completamente estables (SpO2 99%, GCS 15). Según el protocolo de Triage, un esguince leve sin incapacidad funcional mayor corresponde a un Triage IV (Prioritario). No se detectaron factores modificadores de riesgo.\",\"aiLevel\":{\"$numberInt\":\"4\"},\"aiModelUsed\":\"gemini-3.5-flash-lite\",\"triageTimestamp\":{\"$numberLong\":\"1790979785500\"},\"estimatedAttentionTime\":{\"$numberLong\":\"1791066185500\"},\"doctorId\":\"0x5ED24436721Ed75651F625fD3031B849b26dCd80\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1790979787607\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"1791068855565\"}},\"__v\":{\"$numberInt\":\"0\"}}",
+  "originalHash": "763fb48de5b9611572c3790b703e97796896118044b17660b4365648ffbdaec6",
+  "alteredHash": "3e0a9d86cf6bc32c1c1bb21259ecf901684dd0d51a437e1c220b4f01727a66ca",
+  "newTransactionHash": "0x138698a695313a05c822df660da84fcd642280bc870a9c7ebcf578b8ecf1b9bb",
+  "newTransaction": {
+    "status": 1,
+    "block": 49318027,
+    "blockTime": "2026-10-04T19:01:01.000Z",
+    "from": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+    "gasUsed": "309331"
+  },
+  "afterAttack": {
+    "recordStatus": "VALIDO",
+    "recordReason": "OK",
+    "originalHashWithoutRecord": true,
+    "anchoredWithoutRecord": 2,
+    "evidence": {
+      "newAnchorSender": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+      "senderIsRelayer": true,
+      "triageTime": "2026-10-02T22:23:05.500Z",
+      "newAnchorTime": "2026-10-04T19:01:01.000Z",
+      "anchorDelayMinutes": 2678,
+      "anchorsWithSamePseudonym": [
+        {
+          "id": 37,
+          "dataHash": "3e0a9d86cf6bc32c1c1bb21259ecf901684dd0d51a437e1c220b4f01727a66ca",
+          "time": "2026-10-04T19:01:01.000Z"
+        },
+        {
+          "id": 36,
+          "dataHash": "763fb48de5b9611572c3790b703e97796896118044b17660b4365648ffbdaec6",
+          "time": "2026-10-02T22:23:07.000Z"
+        },
+        {
+          "id": 35,
+          "dataHash": "9b4993a6ce942bc2d897adb158f7cd340ac3b8ad67ddac18ab9a7880b567614b",
+          "time": "2026-10-02T22:11:51.000Z"
+        },
+        {
+          "id": 29,
+          "dataHash": "2bb208b0005a7fb09663ebddc3f395cdeb55afae98685791abb95f9f94ab24f2",
+          "time": "2026-09-29T16:46:31.000Z"
+        },
+        {
+          "id": 24,
+          "dataHash": "b96a23078ceeed132b80291a7e2e3fd37df44e6682267d8c8bab73d4834cf9fd",
+          "time": "2026-09-29T16:01:19.000Z"
+        },
+        {
+          "id": 22,
+          "dataHash": "6871be4638863c969dcf2dbe3e48513a1c12abdd9d445c854d55f9fb04081aee",
+          "time": "2026-09-29T15:17:56.000Z"
+        }
+      ]
+    }
+  },
+  "afterRestore": {
+    "recordStatus": "VALIDO",
+    "recordReason": "OK",
+    "newHashWithoutRecord": true,
+    "anchoredWithoutRecord": 2
+  },
+  "finishedAt": "2026-10-04T19:01:21.884Z"
+}

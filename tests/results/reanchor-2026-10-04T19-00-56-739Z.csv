@@ -1,0 +1,2 @@
+recordId,campo,antes,despues,hashOriginal,hashAlterado,txAtaque,remitente,estadoTrasAtaque,hashOriginalSinRegistro,retrasoMin,anclajesMismoSeudonimo,estadoTrasRestaurar
+"6ac02ecb0274b009a52517c2","finalEsiLevel","4","5","763fb48de5b9611572c3790b703e97796896118044b17660b4365648ffbdaec6","3e0a9d86cf6bc32c1c1bb21259ecf901684dd0d51a437e1c220b4f01727a66ca","0x138698a695313a05c822df660da84fcd642280bc870a9c7ebcf578b8ecf1b9bb","0x5ED24436721Ed75651F625fD3031B849b26dCd80","VALIDO","true","2678","6","VALIDO"

@@ -1,0 +1,60 @@
+{
+  "startedAt": "2026-10-04T19:34:56.595Z",
+  "api": "http://localhost:3000/api",
+  "contract": "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A",
+  "attacker": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+  "attackerRole": "médico registrado",
+  "relayer": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+  "recordId": "6ac0295d0274b009a52517a6",
+  "originalDocument": "{\"_id\":{\"$oid\":\"6ac0295d0274b009a52517a6\"},\"blockchainHash\":\"28f47500dcb9b6f83c9e53f03887ccf4a3eba57b89b0180c7f7995829e34bec8\",\"blockchainSignature\":\"0x53639cc83b9be55dbad82e2bb25de62a92687161b94da0b3a0d3ddf9443dfffb5a99b64795bdb377e263d124f36e67ded63690c29f7e085909b93e75baaae1331b\",\"transactionHash\":\"0xc3dae5d6f8eb862073b6896d3b3881daa37a758128d2b6d0809775147b253775\",\"patientData\":{\"id\":\"312d0b11-5684-4c8a-8fb2-101be0914d0b\",\"cedula\":\"2568452\",\"name\":\"Camilo Torres\",\"age\":{\"$numberInt\":\"19\"},\"gender\":\"M\",\"eps\":\"sura\",\"symptoms\":\"Se hinchó toda la cara y no puede respirar\",\"currentIllness\":\" Paciente masculino de 19 años ingresa traído por familiares tras sufrir picadura de avispa en región cervical hace 15 minutos. Al ingreso presenta estridor laríngeo, angioedema severo facial, labial y de vía aérea superior, sibilancias audibles a distancia, cianosis peribucal, marcada dificultad respiratoria con uso de músculos accesorios y alteración progresiva del estado de conciencia.\",\"vitals\":{\"heartRate\":{\"$numberInt\":\"134\"},\"spo2\":{\"$numberInt\":\"78\"},\"temperature\":{\"$numberDouble\":\"36.5\"},\"respiratoryRate\":{\"$numberInt\":\"32\"},\"bloodPressureSys\":{\"$numberInt\":\"70\"},\"bloodPressureDia\":{\"$numberInt\":\"42\"},\"bloodPressureMap\":{\"$numberInt\":\"51\"},\"painLevel\":{\"$numberInt\":\"5\"}},\"glasgow\":{\"eyeOpening\":{\"$numberInt\":\"2\"},\"verbalResponse\":{\"$numberInt\":\"3\"},\"motorResponse\":{\"$numberInt\":\"5\"},\"total\":{\"$numberInt\":\"10\"}},\"selectedSymptoms\":[\"Angioedema severo facial, labial y de vía aérea superior\",\"Estridor laríngeo\",\"Sibilancias audibles a distancia\",\"Cianosis peribucal\",\"Dificultad respiratoria severa con uso de músculos accesorios\",\"Alteración del estado de conciencia\",\"Hipotensión (PAS 70/PAD 42 mmHg)\",\"Taquicardia (FC 134 lpm)\",\"Taquipnea (FR 32 rpm)\",\"Hipoxemia severa (SpO2 78%)\"],\"suggestedEsiLevel\":{\"$numberInt\":\"1\"},\"finalEsiLevel\":{\"$numberInt\":\"1\"},\"overrideReason\":\"Clasificado por IA: El paciente presenta un cuadro clínico de anafilaxia severa por picadura de avispa con obstrucción inminente de la vía aérea superior (estridor, angioedema severo, sibilancias), hipoxemia severa (SpO2 78%), taquipnea (FR 32 rpm), hipotensión marcada (PAS 70 mmHg) indicativa de shock anafiláctico, y alteración aguda del estado de conciencia con Glasgow de 10. Según el protocolo de Triage Nivel I, se clasifican aquí el shock, la obstrucción o compromiso severo de vía aérea, dificultad respiratoria severa con SpO2 < 90% o FR > 30, y Glasgow alterado. No se requieren modificadores adicionales para elevar la prioridad ya que cumple con el nivel máximo de gravedad inmediata.\",\"aiLevel\":{\"$numberInt\":\"1\"},\"aiModelUsed\":\"gemini-3.5-flash-lite\",\"triageTimestamp\":{\"$numberLong\":\"1790978393835\"},\"estimatedAttentionTime\":{\"$numberLong\":\"1790978393835\"},\"doctorId\":\"0x5ED24436721Ed75651F625fD3031B849b26dCd80\"},\"createdAt\":{\"$date\":{\"$numberLong\":\"1790978397071\"}},\"updatedAt\":{\"$date\":{\"$numberLong\":\"1790978397071\"}},\"__v\":{\"$numberInt\":\"0\"}}",
+  "originalHash": "28f47500dcb9b6f83c9e53f03887ccf4a3eba57b89b0180c7f7995829e34bec8",
+  "alteredHash": "43fd880cbab1de213bda01c102d43c53a0cf55418361d117eaaf67bfc7cd97de",
+  "newTransactionHash": "0x665ca25962f3183f44bcd0c6616c72c61f1f5b1c2178309c4b9002e68a76b3d7",
+  "newTransaction": {
+    "status": 1,
+    "block": 49320066,
+    "blockTime": "2026-10-04T19:35:00.000Z",
+    "from": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+    "gasUsed": "309331"
+  },
+  "afterAttack": {
+    "recordStatus": "ALTERADO",
+    "recordReason": "REANCLADO",
+    "anchorDelayMin": 2735,
+    "originalAnchor": {
+      "id": 34,
+      "dataHash": "28f47500dcb9b6f83c9e53f03887ccf4a3eba57b89b0180c7f7995829e34bec8",
+      "triageLevel": 1,
+      "time": "2026-10-02T21:59:56.000Z"
+    },
+    "originalAnchorMatches": true,
+    "originalHashWithoutRecord": false,
+    "anchoredWithoutRecord": 2,
+    "evidence": {
+      "newAnchorSender": "0x5ED24436721Ed75651F625fD3031B849b26dCd80",
+      "senderIsRelayer": true,
+      "triageTime": "2026-10-02T21:59:53.835Z",
+      "newAnchorTime": "2026-10-04T19:35:00.000Z",
+      "anchorDelayMinutes": 2735,
+      "anchorsWithSamePseudonym": [
+        {
+          "id": 38,
+          "dataHash": "43fd880cbab1de213bda01c102d43c53a0cf55418361d117eaaf67bfc7cd97de",
+          "time": "2026-10-04T19:35:00.000Z"
+        },
+        {
+          "id": 34,
+          "dataHash": "28f47500dcb9b6f83c9e53f03887ccf4a3eba57b89b0180c7f7995829e34bec8",
+          "time": "2026-10-02T21:59:56.000Z"
+        }
+      ]
+    }
+  },
+  "afterRestore": {
+    "recordStatus": "VALIDO",
+    "recordReason": "OK",
+    "newHashWithoutRecord": true,
+    "anchoredWithoutRecord": 3
+  },
+  "finishedAt": "2026-10-04T19:35:21.889Z"
+}

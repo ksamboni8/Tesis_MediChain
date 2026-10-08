@@ -68,7 +68,10 @@ async function readChain(): Promise<any[]> {
   if (recs.length !== total) {
     throw new Error(`Se leyeron ${recs.length} de ${total} registros anclados; la verificación no sería completa.`);
   }
-  return recs.map(r => ({ id: Number(r.id), dataHash: String(r.dataHash).toLowerCase() }));
+  return recs.map(r => ({
+    id: Number(r.id), dataHash: String(r.dataHash).toLowerCase(), patientIdAnonymized: String(r.patientIdAnonymized),
+    triageLevel: Number(r.triageLevel), timestamp: Number(r.timestamp) * 1000,
+  }));
 }
 
 // Transacciones de anclaje (readAnchorTx), con caché: una transacción confirmada no cambia.
@@ -137,9 +140,9 @@ async function audit(records: any[]) {
   const txs = await readTxs(records.map(r => r.transactionHash).filter(Boolean));
   const inputs: any[] = [];
   for (const rec of records) {
-    inputs.push({ id: rec._id, recomputedHash: await generateHash(rec.patientData), transactionHash: rec.transactionHash, storedHash: rec.blockchainHash });
+    inputs.push({ id: rec._id, recomputedHash: await generateHash(rec.patientData), transactionHash: rec.transactionHash, storedHash: rec.blockchainHash, triageTimestamp: rec.patientData.triageTimestamp });
   }
-  const verdicts = classifyRecords(inputs, anchored, txs);
+  const verdicts = classifyRecords(inputs, anchored, txs, chain);
   const status = new Map<string, { hash: string; status: Status; reason: string }>();
   for (const i of inputs) {
     const v = verdicts.get(i.id)!;

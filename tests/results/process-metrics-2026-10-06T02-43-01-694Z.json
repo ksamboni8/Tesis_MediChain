@@ -1,0 +1,103 @@
+{
+  "date": "2026-10-06T02:43:01.695Z",
+  "contract": "0xa7e1c47b30Ef1a30E3cd46edD2147B4Eed7E6D6A",
+  "runs": 3,
+  "audit": {
+    "records": 71,
+    "anchors": 39,
+    "transactions": 69,
+    "byStatus": {
+      "ALTERADO": 54,
+      "VALIDO": 17
+    },
+    "anchoredWithoutRecord": 3,
+    "totalSeconds": {
+      "n": 3,
+      "min": 1.9974448999999994,
+      "median": 2.2664,
+      "mean": 2.314624466666667,
+      "max": 2.6800285000000015
+    },
+    "phasesMs": [
+      {
+        "total": 2266.4,
+        "readChain": 452.61760000000004,
+        "readTransactions": 1796.8150000000005,
+        "recomputeHashes": 16.021600000000035,
+        "classify": 0.9457999999995081
+      },
+      {
+        "total": 1997.4448999999995,
+        "readChain": 280.51980000000003,
+        "readTransactions": 1706.4834,
+        "recomputeHashes": 10.150099999999838,
+        "classify": 0.291599999999562
+      },
+      {
+        "total": 2680.0285000000013,
+        "readChain": 934.6223,
+        "readTransactions": 1736.4876999999997,
+        "recomputeHashes": 8.643600000001243,
+        "classify": 0.2749000000003434
+      }
+    ]
+  },
+  "singleRecordVerification": {
+    "ms": {
+      "n": 51,
+      "min": 106.08979999999974,
+      "median": 113.83090000000084,
+      "mean": 116.24880392156864,
+      "max": 209.16220000000067
+    },
+    "matches": 51,
+    "of": 51
+  },
+  "quality": {
+    "all": {
+      "n": 71,
+      "complete": 60,
+      "missingByField": {
+        "Enfermedad actual": 11,
+        "Glasgow: apertura ocular": 7,
+        "Glasgow: respuesta verbal": 7,
+        "Glasgow: respuesta motora": 7,
+        "Frecuencia respiratoria": 1,
+        "Motivo de consulta": 1
+      },
+      "withFinalLevel": 71,
+      "withSuggestedLevel": 71,
+      "withAiExplanation": 35,
+      "withAiExplanationField": 0,
+      "aiClassified": 35,
+      "aiClassifiedWithExplanation": 35,
+      "overridden": 15,
+      "overriddenWithReason": 15,
+      "overriddenWithAiExplanation": 6,
+      "corrections": 2,
+      "correctionsWithReason": 2,
+      "withDoctor": 71,
+      "withTriageTime": 71,
+      "withTransaction": 69
+    },
+    "valid": {
+      "n": 17,
+      "complete": 17,
+      "missingByField": {},
+      "withFinalLevel": 17,
+      "withSuggestedLevel": 17,
+      "withAiExplanation": 16,
+      "withAiExplanationField": 0,
+      "aiClassified": 16,
+      "aiClassifiedWithExplanation": 16,
+      "overridden": 0,
+      "overriddenWithReason": 0,
+      "overriddenWithAiExplanation": 0,
+      "corrections": 1,
+      "correctionsWithReason": 1,
+      "withDoctor": 17,
+      "withTriageTime": 17,
+      "withTransaction": 17
+    }
+  }
+}
