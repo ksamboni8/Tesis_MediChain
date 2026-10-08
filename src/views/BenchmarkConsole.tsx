@@ -438,7 +438,6 @@ export const BenchmarkConsole: React.FC = () => {
                 <th className="p-2.5 text-indigo-700 font-bold">4. Guardado (s)</th>
                 <th className="p-2.5">5. Blockchain (s)</th>
                 <th className="p-2.5">Hash (ms)</th>
-                <th className="p-2.5">Firma (ms)</th>
                 <th className="p-2.5">Gas</th>
                 <th className="p-2.5">Costo (POL)</th>
                 <th className="p-2.5">Tokens (ent./sal.)</th>
@@ -465,7 +464,6 @@ export const BenchmarkConsole: React.FC = () => {
                   <td className="p-2.5 text-amber-600">{log.t_blockchain === null ? 'N/D' : log.t_blockchain ? log.t_blockchain.toFixed(2) : '0.00'}</td>
                   {/* Registros previos a este cambio no tienen estos campos (undefined) → N/D */}
                   <td className="p-2.5 text-slate-600">{typeof log.t_hash_ms === 'number' ? log.t_hash_ms.toFixed(3) : 'N/D'}</td>
-                  <td className="p-2.5 text-slate-600">{typeof log.t_firma_ms === 'number' ? log.t_firma_ms.toFixed(3) : 'N/D'}</td>
                   {/* Costos: null o ausente (registros previos, IA no ejecutada) → N/D; el POL se muestra tal como se guardó */}
                   <td className="p-2.5 text-slate-600">{typeof log.gas_used === 'number' ? log.gas_used : 'N/D'}</td>
                   <td className="p-2.5 text-slate-600">{log.cost_pol ?? 'N/D'}</td>

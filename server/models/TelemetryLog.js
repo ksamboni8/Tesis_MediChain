@@ -11,7 +11,6 @@ const TelemetryLogSchema = new mongoose.Schema({
   t_ui: { type: Number, default: null },
   t_blockchain: { type: Number, default: null },
   t_hash_ms: { type: Number, default: null },     // SHA-256 en el servidor (ms); null en registros previos
-  t_firma_ms: { type: Number, default: null },    // Firma ECDSA del relayer (ms); null en registros previos
   // Costos por triage: null si no hay dato real (sin relleno). wei y POL como texto decimal exacto
   gas_used: { type: Number, default: null },                  // receipt.gasUsed (unidades de gas)
   effective_gas_price_wei: { type: String, default: null },   // receipt.effectiveGasPrice (wei)

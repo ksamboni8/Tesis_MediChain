@@ -199,7 +199,6 @@ export interface HybridRecord {
   _id: string; // MongoDB ID
   patientData: PatientData; // The actual medical content
   blockchainHash: string; // The immutable hash stored on-chain (Data Fingerprint)
-  blockchainSignature: string; // Firma ECDSA del hash con la clave del Relayer (no del médico); no se verifica
   transactionHash?: string; // NEW: The Polygon TX Receipt Hash
   isSynced: boolean; // Helper for frontend state
   createdAt: string;
@@ -226,7 +225,6 @@ export interface TelemetryLog {
   t_ui: number | null;   // Tiempo de respuesta al guardar (s): clic Guardar → respuesta del servidor con registro anclado y guardado
   t_blockchain: number | null; // Anclaje en Blockchain / Relayer (s), null si no hubo métrica real
   t_hash_ms?: number | null;  // Cálculo SHA-256 en el servidor (ms); ausente/null en registros previos
-  t_firma_ms?: number | null; // Firma ECDSA del relayer en el servidor (ms); ausente/null en registros previos
   // Costos por triage (null = sin dato real; ausente en registros previos). No entran en el hash
   gas_used?: number | null;                  // receipt.gasUsed
   effective_gas_price_wei?: string | null;   // receipt.effectiveGasPrice en wei (texto decimal exacto)

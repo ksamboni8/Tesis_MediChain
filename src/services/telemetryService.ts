@@ -148,7 +148,7 @@ export const telemetryService = {
     ];
   },
 
-  // Estadísticas (ms) de las operaciones criptográficas del servidor: [0] hash SHA-256, [1] firma ECDSA.
+  // Estadísticas (ms) de las operaciones criptográficas del servidor: [0] hash SHA-256.
   // Se excluyen null y los registros previos que no tienen estos campos (undefined). n = muestras con valor.
   calculateCryptoSummary(logs?: TelemetryLog[]): MsMetricSummary[] {
     const rawData = logs || this.getLogsFromCache();
@@ -171,7 +171,6 @@ export const telemetryService = {
 
     return [
       statsMs('Cálculo del hash SHA-256 (servidor)', validData.map(l => l.t_hash_ms)),
-      statsMs('Firma ECDSA del Relayer (servidor)', validData.map(l => l.t_firma_ms)),
     ];
   },
 
@@ -215,7 +214,7 @@ export const telemetryService = {
     const bc = summary[4] || { min: 2.1, avg: 7.84, max: 14.2, stdDev: 2.65 };
 
     // Subsección de operaciones criptográficas (ms). Sin muestras → se indica explícitamente, sin ceros.
-    const [hashRow, firmaRow] = cryptoSummary;
+    const [hashRow] = cryptoSummary;
     const msRow = (r?: MsMetricSummary) => r && r.n > 0
       ? `${r.phase} & ${r.n} & ${r.min.toFixed(3)} & ${r.avg.toFixed(3)} & ${r.max.toFixed(3)} & $\\pm ${(r.stdDev ?? 0).toFixed(3)}$ \\\\ \\hline`
       : `${r?.phase ?? '—'} & 0 & \\multicolumn{4}{c|}{Sin muestras registradas} \\\\ \\hline`;
@@ -227,7 +226,7 @@ export const telemetryService = {
 \\subsection{Operaciones criptográficas en el servidor}
 \\label{subsec:operaciones_criptograficas}
 
-Durante el guardado, el servidor calcula el hash SHA-256 determinístico del expediente (función \\texttt{generateHashBackend}, módulo \\texttt{crypto} de Node.js) y lo firma con la clave ECDSA secp256k1 del \\textit{Relayer}. Ambas operaciones se miden por separado en el servidor con \\texttt{performance.now()} y se reportan en milisegundos. El tamaño de muestra $n$ corresponde a los registros que incluyen cada métrica.
+Durante el guardado, el servidor calcula el hash SHA-256 determinístico del expediente (función \\texttt{generateHashBackend}, módulo \\texttt{crypto} de Node.js). La operación se mide en el servidor con \\texttt{performance.now()} y se reporta en milisegundos. El tamaño de muestra $n$ corresponde a los registros que incluyen la métrica.
 
 \\begin{table}[h!]
 \\centering
@@ -237,7 +236,6 @@ Durante el guardado, el servidor calcula el hash SHA-256 determinístico del exp
 \\hline
 \\textbf{Operación} & \\textbf{$n$} & \\textbf{Mín. (ms)} & \\textbf{Promedio (ms)} & \\textbf{Máx. (ms)} & \\textbf{Desv. Est. ($\\sigma$)} \\\\ \\hline
 ${msRow(hashRow)}
-${msRow(firmaRow)}
 \\end{tabular}
 \\end{table}
 
@@ -258,8 +256,8 @@ Las métricas del proceso de triage se agrupan en las siguientes cinco fases. La
 \\begin{enumerate}
     \\item \\textbf{Fase 1 (Adquisición y Estabilización IoT BLE):} Evaluada en registros con hardware biométrico físico conectado (sensores BLE de pulsioximetría y temperatura). En pruebas de carga sintética de API se aísla esta fase ($t_{\\text{IoT}} = \\text{N/A}$) para evaluar únicamente la latencia pura de la infraestructura de software.
     \\item \\textbf{Fase 2 (Inferencia IA - Gemini, modelo variable):} Medido en el servidor desde la recepción de la solicitud de análisis hasta obtener una respuesta JSON válida del modelo de lenguaje, procesando el expediente clínico completo (motivo de consulta, signos vitales, escala Glasgow, criterios de choque y modificadores ESI). Incluye todos los intentos de la cascada de modelos (también los fallidos) y excluye el tramo de red entre el cliente y el servidor.
-    \\item \\textbf{Fase 3 (Persistencia en MongoDB):} Medido en el servidor: inserción del registro híbrido en MongoDB. El cálculo del hash SHA-256 y la firma se realizan antes y no forman parte de esta fase.
-    \\item \\textbf{Fase 4 (Tiempo de respuesta al guardar):} Tiempo de ida y vuelta medido en el cliente con \\texttt{performance.now()} desde que el médico confirma el guardado hasta que el servidor responde con el registro ya anclado en Polygon Amoy y almacenado en MongoDB. Incluye la red cliente--servidor, la verificación on-chain de autorización del médico, el cálculo del hash, la firma, el anclaje en blockchain (Fase 5) y la persistencia (Fase 3). No incluye la inferencia de IA, que el médico ejecuta como una acción previa e independiente.
+    \\item \\textbf{Fase 3 (Persistencia en MongoDB):} Medido en el servidor: inserción del registro híbrido en MongoDB. El cálculo del hash SHA-256 se realiza antes y no forma parte de esta fase.
+    \\item \\textbf{Fase 4 (Tiempo de respuesta al guardar):} Tiempo de ida y vuelta medido en el cliente con \\texttt{performance.now()} desde que el médico confirma el guardado hasta que el servidor responde con el registro ya anclado en Polygon Amoy y almacenado en MongoDB. Incluye la red cliente--servidor, la verificación on-chain de autorización del médico, el cálculo del hash, el anclaje en blockchain (Fase 5) y la persistencia (Fase 3). No incluye la inferencia de IA, que el médico ejecuta como una acción previa e independiente.
     \\item \\textbf{Fase 5 (Anclaje en Blockchain):} Medido en el servidor: envío de la transacción por el \\textit{Relayer} (custodial) hasta obtener su hash, más la espera de una confirmación (inclusión en bloque) en la red Polygon Amoy, con sondeo del proveedor RPC cada 1 s. El servidor espera esta confirmación antes de responder, por lo que la fase es síncrona respecto al médico.
 \\end{enumerate}
 

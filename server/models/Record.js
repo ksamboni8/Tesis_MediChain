@@ -68,7 +68,6 @@ const PatientDataSchema = new mongoose.Schema({
 // 4. Esquema Principal de Registro Híbrido (MongoDB + Blockchain)
 const RecordSchema = new mongoose.Schema({
   blockchainHash: { type: String, required: true, unique: true }, // Identificador criptográfico
-  blockchainSignature: { type: String, required: true },
   transactionHash: { type: String, required: false }, // Enlace a la red (Polygon)
   
   // Datos clínicos estructurados

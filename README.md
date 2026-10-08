@@ -46,8 +46,8 @@ el contrato. Si no lo está, el registro se marca como **ALTERADO**.
 
 - **Frontend** (`src/`): React 18 + TypeScript + Vite. Vistas en `src/views/`, acceso a API,
   blockchain y Bluetooth en `src/services/`.
-- **Backend** (`server.ts`, `server/models/`): Express + Mongoose. Calcula el hash, lo firma con la
-  billetera del Relayer y lo ancla en Polygon pagando el gas (Relayer custodial).
+- **Backend** (`server.ts`, `server/models/`): Express + Mongoose. Calcula el hash y lo ancla en
+  Polygon con la billetera del Relayer, que firma y paga la transacción (Relayer custodial).
 - **Reglas compartidas** (`src/shared/`): campos y serialización del hash (`hashPayload.ts`) y
   campos obligatorios (`requiredFields.ts`), usados por cliente y servidor.
 - **Firmware** (`arduino/`): captura y estabilización de signos vitales en el ESP32.

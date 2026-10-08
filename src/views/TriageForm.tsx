@@ -824,7 +824,6 @@ export const TriageForm: React.FC<TriageFormProps> = ({ walletAddress, initialDa
         t_blockchain: realBcTimeSec,
         // Tiempos criptográficos del servidor en ms (typeof conserva un 0 legítimo; ausente → null)
         t_hash_ms: typeof dbMetrics?.t_hash_ms === 'number' ? dbMetrics.t_hash_ms : null,
-        t_firma_ms: typeof dbMetrics?.t_firma_ms === 'number' ? dbMetrics.t_firma_ms : null,
         // Costos: gas y precio del recibo de la transacción; tokens y modelos probados del análisis IA
         // de este triage (null si no se ejecutó). Ausente → null, sin valores de relleno
         gas_used: typeof dbMetrics?.gasUsed === 'string' ? Number(dbMetrics.gasUsed) : null,

@@ -46,7 +46,7 @@ const frontHash = await generateHash(patientData);
 const backHash = generateHashBackend(patientData);
 
 // 2. Ciclo guardar→leer simulado con el esquema Mongoose (casteo de tipos), sin conexión a BD
-const doc = new Record({ patientData, blockchainHash: backHash, blockchainSignature: '0xsig' });
+const doc = new Record({ patientData, blockchainHash: backHash });
 const validationError = doc.validateSync();
 check('El documento cumple el esquema Record', !validationError);
 if (validationError) console.error(validationError.message);
@@ -70,7 +70,7 @@ check('Hash alterado (finalEsiLevel 2→3) es diferente', tamperedHash !== backH
 // y conservar el hash después de guardarse
 const noAiData = { ...patientData, suggestedEsiLevel: null };
 const noAiBack = generateHashBackend(noAiData);
-const noAiDoc = new Record({ patientData: noAiData, blockchainHash: noAiBack, blockchainSignature: '0xsig' });
+const noAiDoc = new Record({ patientData: noAiData, blockchainHash: noAiBack });
 check('Registro sin sugerencia de IA cumple el esquema Record', !noAiDoc.validateSync());
 const noAiFromDb = JSON.parse(JSON.stringify(noAiDoc.toObject().patientData));
 check('Sin sugerencia de IA: hash backend = hash frontend tras el esquema', noAiBack === await generateHash(noAiFromDb));
@@ -79,7 +79,7 @@ check('Sin sugerencia de IA: hash backend = hash frontend tras el esquema', noAi
 // y un registro sin ella conserva el hash que tenía antes de agregar el campo
 const explData = { ...patientData, aiExplanation: 'Dolor torácico opresivo con taquicardia: nivel 2.' };
 const explBack = generateHashBackend(explData);
-const explDoc = new Record({ patientData: explData, blockchainHash: explBack, blockchainSignature: '0xsig' });
+const explDoc = new Record({ patientData: explData, blockchainHash: explBack });
 check('Registro con explicación de IA cumple el esquema Record', !explDoc.validateSync());
 const explFromDb = JSON.parse(JSON.stringify(explDoc.toObject().patientData));
 check('Con explicación de IA: hash backend = hash frontend tras el esquema', explBack === await generateHash(explFromDb));

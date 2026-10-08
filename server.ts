@@ -47,7 +47,7 @@ let relayerConfigError: string | null = null;
   if (relayerWallet) {
     console.log(`[RELAYER] Billetera de Firma Invisible en Servidor inicializada. Dirección: ${relayerWallet.address}`);
   } else {
-    console.error(`[RELAYER] ⚠️ Relayer NO configurado: ${relayerConfigError}. El guardado de triages (firma y anclaje en Polygon) fallará hasta corregirlo.`);
+    console.error(`[RELAYER] ⚠️ Relayer NO configurado: ${relayerConfigError}. El guardado de triages (anclaje en Polygon) fallará hasta corregirlo.`);
   }
 }
 
@@ -63,19 +63,6 @@ function getRelayerWallet(): ethers.Wallet {
 // src/shared/hashPayload.ts, la misma definición que usa el cliente para verificar la integridad.
 function generateHashBackend(data: any): string {
   return crypto.createHash('sha256').update(serializeForHash(data)).digest('hex');
-}
-
-// Firma criptográficamente el hash usando la clave privada del servidor (ECDSA con SECP256K1)
-// Firma ECDSA del hash con la clave del Relayer. Fail-closed: si la firma falla se lanza el error y el
-// guardado completo se aborta (no se genera ninguna firma sustituta ni se guarda el registro).
-async function signHashBackend(dataHash: string): Promise<string> {
-  const wallet = getRelayerWallet(); // Fuera del try: el error "Relayer no configurado" llega tal cual
-  try {
-    return await wallet.signMessage(ethers.getBytes(ethers.id(dataHash)));
-  } catch (err: any) {
-    console.error('[RELAYER] Falló la firma ECDSA del hash; el registro no se guardará:', err.message || err);
-    throw new Error(`No se pudo firmar el registro con la clave del Relayer: ${err.shortMessage || err.message || err}`);
-  }
 }
 
 // Resultado de la verificación on-chain: distingue "no autorizado" (el contrato respondió
@@ -512,7 +499,7 @@ app.post('/api/records/invisible', requireRole('DOCTOR', 'ADMIN'), ensureLocalMo
 
     // Campos obligatorios (relato, 6 signos vitales y las 3 subescalas de Glasgow; misma regla que el cliente,
     // src/shared/requiredFields.ts). Falla cerrado: se rechaza antes de verificar al médico,
-    // hashear, firmar o anclar en Polygon.
+    // hashear o anclar en Polygon.
     const missingFields = missingRequiredTriageFields(patientData);
     if (missingFields.length > 0) {
       return res.status(400).json({
@@ -553,7 +540,7 @@ app.post('/api/records/invisible', requireRole('DOCTOR', 'ADMIN'), ensureLocalMo
     patientData.finalEsiLevel = Number(patientData.finalEsiLevel);
     patientData.suggestedEsiLevel = suggested === null ? null : Number(suggested);
 
-    // Verificar en la Blockchain que la wallet del médico esté autorizada ANTES de hashear/firmar/registrar nada.
+    // Verificar en la Blockchain que la wallet del médico esté autorizada ANTES de hashear/registrar nada.
     const doctorId = patientData.doctorId;
     if (!doctorId) {
       return res.status(400).json({ error: "Missing patientData.doctorId for authorization check" });
@@ -581,12 +568,7 @@ app.post('/api/records/invisible', requireRole('DOCTOR', 'ADMIN'), ensureLocalMo
     const dataHash = generateHashBackend(patientData);
     const t_hash_ms = Number((performance.now() - t_hash_start).toFixed(3));
     
-    // B. Generate real ECDSA cryptographic signature using backend private key (Relayer/System wallet)
-    const t_firma_start = performance.now();
-    const signature = await signHashBackend(dataHash);
-    const t_firma_ms = Number((performance.now() - t_firma_start).toFixed(3));
-
-    // C. Ancla en Polygon Amoy. Fail-closed: si la transacción no se confirma, se lanza el error y no se guarda nada.
+    // B. Ancla en Polygon Amoy. Fail-closed: si la transacción no se confirma, se lanza el error y no se guarda nada.
     // We embed the doctor's MetaMask address visibly in plain text within the reason/metadata string
     // Format: "DOC:0x123...|ACTION:..." so Polygonscan directly displays the physician's wallet!
     const doctorAddressClean = (doctorWallet || patientData.doctorId || "0xANONYMOUS_DOCTOR").trim();
@@ -609,26 +591,24 @@ app.post('/api/records/invisible', requireRole('DOCTOR', 'ADMIN'), ensureLocalMo
       plainTextMetadataOnChain
     );
 
-    // D. Save to Database
+    // C. Save to Database
     const t_db_start = performance.now();
     const newRecord = new Record({
       patientData,
       blockchainHash: dataHash,
-      blockchainSignature: signature,
       transactionHash: bcDetails.txHash
     });
 
     await newRecord.save();
     const t_db_ms = Number((performance.now() - t_db_start).toFixed(3));
 
-    console.log(`[RELAYER] Record registered and signed invisibly on Backend. Doctor: ${doctorWallet} | Relayer: ${getRelayerWallet().address} | TX: ${bcDetails.txHash}`);
+    console.log(`[RELAYER] Record registered and anchored invisibly on Backend. Doctor: ${doctorWallet} | Relayer: ${getRelayerWallet().address} | TX: ${bcDetails.txHash}`);
     
     const recordObj = newRecord.toObject();
     res.status(201).json({
       ...recordObj,
       _metrics: {
         t_hash_ms,
-        t_firma_ms,
         t_prop_ms: bcDetails.t_prop_ms,
         t_minado_ms: bcDetails.t_minado_ms,
         t_bc_ms: bcDetails.t_prop_ms + bcDetails.t_minado_ms,
@@ -763,7 +743,6 @@ app.get('/api/telemetry/logs', requireRole('ADMIN'), ensureLocalMongo, async (re
       t_ui: doc.t_ui,
       t_blockchain: doc.t_blockchain,
       t_hash_ms: doc.t_hash_ms ?? null,
-      t_firma_ms: doc.t_firma_ms ?? null,
       ...telemetryCostFields(doc),
       isRealMeasurement: doc.isRealMeasurement,
       errorReason: doc.errorReason
@@ -788,7 +767,6 @@ app.post('/api/telemetry/logs', requireRole('DOCTOR', 'ADMIN'), ensureLocalMongo
       t_ui: typeof logData.t_ui === 'number' ? logData.t_ui : null,
       t_blockchain: typeof logData.t_blockchain === 'number' ? logData.t_blockchain : null,
       t_hash_ms: typeof logData.t_hash_ms === 'number' ? logData.t_hash_ms : null,
-      t_firma_ms: typeof logData.t_firma_ms === 'number' ? logData.t_firma_ms : null,
       ...telemetryCostFields(logData),
       isRealMeasurement: logData.isRealMeasurement !== false,
       errorReason: logData.errorReason || ''
@@ -814,7 +792,6 @@ app.post('/api/telemetry/batch', requireRole('ADMIN'), ensureLocalMongo, async (
       t_ui: typeof logData.t_ui === 'number' ? logData.t_ui : null,
       t_blockchain: typeof logData.t_blockchain === 'number' ? logData.t_blockchain : null,
       t_hash_ms: typeof logData.t_hash_ms === 'number' ? logData.t_hash_ms : null,
-      t_firma_ms: typeof logData.t_firma_ms === 'number' ? logData.t_firma_ms : null,
       ...telemetryCostFields(logData),
       isRealMeasurement: logData.isRealMeasurement !== false,
       errorReason: logData.errorReason || ''
